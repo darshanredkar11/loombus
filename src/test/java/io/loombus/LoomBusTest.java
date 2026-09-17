@@ -150,7 +150,7 @@ class LoomBusTest {
                     .toList();
 
             for (var future : futures) {
-                assertTrue(future.get(5, TimeUnit.SECONDS));
+                assertTrue((Boolean) future.get(5, TimeUnit.SECONDS));
             }
         }
     }
