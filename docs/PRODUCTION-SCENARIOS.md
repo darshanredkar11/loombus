@@ -2,35 +2,44 @@
 
 ## Purpose
 
-This document answers a different question from `USE-CASES.md`:
+This document answers:
 
-> **When should a production Java system use LoomBus, and what problem does it solve compared with native Java?**
+> **When should a production Java system use LoomBus, and what does the LoomBus version look like compared with native Java?**
 
-LoomBus is not intended to replace normal Java method calls, `CompletableFuture`, executors, locks, Kafka, Pulsar, REST, or gRPC. It is an in-process concurrency and communication abstraction for cases where concurrent business operations need explicit ownership, controlled execution, mailbox semantics, ordering, failure handling, and backpressure.
+The goal is not to claim that LoomBus is universally better than Java's concurrency primitives. Java already provides excellent building blocks. LoomBus is useful when an application needs a higher-level **in-process communication boundary** combining messages, mailboxing, ownership, controlled concurrency, completion, and backpressure.
 
-The comparisons below are architectural scenarios, not performance claims. Any claim about throughput or latency should be validated with benchmarks for the actual workload.
+Every scenario below shows:
+
+1. The production problem.
+2. A representative native-Java solution.
+3. The same scenario using LoomBus.
+4. What LoomBus changes architecturally.
+5. When the native solution may still be preferable.
+
+These are architectural comparisons, not performance claims. Throughput, latency, allocation, CPU, and memory must be benchmarked for the real workload.
 
 ---
 
-## 1. Stateful object receiving concurrent commands
+## 1. Stateful account/session/workflow receiving concurrent commands
 
-### Production scenario
+### Production problem
 
-A single logical business entity receives many concurrent commands:
+Many virtual threads can concurrently issue commands against one logical state owner:
 
-- account balance updates
-- shopping-cart mutations
-- session state
+- account balance
+- shopping cart
+- authentication session
 - workflow state
 - device state
 - tenant configuration
-- rate-limit state
 
-The important requirement is that mutations for one logical owner must not corrupt each other.
+The desired invariant is simple:
 
-### Native Java approach
+> Operations for one logical owner must not concurrently corrupt that owner's mutable state.
 
-A common implementation is a mutable object protected by `synchronized`, `Lock`, or atomics.
+### Native Java
+
+A straightforward solution is a lock around the mutable state.
 
 ```java
 class Account {
@@ -45,187 +54,262 @@ class Account {
 }
 ```
 
-This is valid Java. The difficulty is that the concurrency protocol becomes part of every mutable component. As the system grows, developers must reason about lock ownership, lock ordering, deadlocks, contention, queues, and executor behavior.
+This is valid and often perfectly appropriate. But the lock becomes part of the business object's concurrency protocol.
 
-### LoomBus model
-
-Treat the endpoint as the logical owner of the mutable state.
+As the application evolves, it may additionally need:
 
 ```text
-Concurrent callers
-      │
-      ▼
-   LoomBus
-      │
-      ▼
- Stateful endpoint
-      │
-      ▼
- Single logical owner
-      │
-      ▼
- Mutable state
+lock ownership
+lock ordering
+queueing
+executor management
+failure handling
+admission limits
 ```
 
-With `concurrency = 1`, commands are processed sequentially by that endpoint.
+### LoomBus
+
+Make the endpoint the logical owner of the mutable state.
+
+```java
+var balance = new BigDecimal[] { new BigDecimal("1000") };
+
+var account = bus.register(
+        "account",
+        EndpointConfig.stateful(1_000),
+        (Debit command) -> {
+            balance[0] = balance[0].subtract(command.amount());
+            return balance[0];
+        });
+
+CompletableFuture<BigDecimal> result =
+        bus.request("account", new Debit(new BigDecimal("50")));
+```
+
+With `EndpointConfig.stateful(...)`, the endpoint is configured with concurrency `1`. The mutable `balance` is therefore accessed by one endpoint worker at a time.
+
+A cleaner production implementation would encapsulate the state in an endpoint-owned object rather than expose the array directly; the array here simply demonstrates that the handler can retain mutable state owned by that endpoint.
 
 ### What LoomBus changes
 
-The key change is **where concurrency is controlled**. Instead of allowing many operations to enter the state concurrently and protecting every mutation with a lock, the architecture can serialize commands at the endpoint boundary.
+Instead of:
 
-This does not make Java synchronization disappear everywhere. Shared resources outside the endpoint still require their own concurrency controls.
+```text
+many operations
+      ↓
+shared mutable state
+      ↓
+lock
+```
 
-### Good fit when
+we get:
 
-- state has a clear logical owner
-- commands can be processed sequentially
-- ordering matters
-- the state lives in one JVM
-- callers should not mutate the state directly
+```text
+many operations
+      ↓
+endpoint mailbox
+      ↓
+one logical owner
+      ↓
+state mutation
+```
 
-### Not a fit when
+The important change is **where concurrency is controlled**.
 
-The state must be concurrently updated by many independent workers and a lock-free/atomic data structure is the simpler and more appropriate abstraction.
+### Good fit
+
+Use this model when a business object has a clear owner and commands can be serialized.
+
+### Native Java may be better
+
+If the object has only one caller, a direct method call is simpler. If highly concurrent atomic updates are the natural model, `Atomic*`, `LongAdder`, concurrent collections, or a lock may be more appropriate.
 
 ---
 
-## 2. High-volume commands targeting the same logical entity
+## 2. Thousands of commands targeting the same logical entity
 
-### Production scenario
+### Production problem
 
-A service receives thousands of operations for the same customer, session, device, or workflow.
+Imagine an IDP receiving many simultaneous operations for one authentication session:
 
 ```text
 VT1 ─┐
 VT2 ─┤
-VT3 ─┤──> same logical entity
-VT4 ─┤
-VT5 ─┘
+VT3 ─┤
+VT4 ─┼──> session state
+VT5 ─┤
+...  ┘
 ```
 
-### Native Java approach
+For example:
 
-Typical designs use a map of objects plus per-object locks, striped locks, actor-like queues, or custom executors.
+- MFA challenge update
+- risk score update
+- device registration
+- authentication attempt
+- session transition
 
-This can work well, but the application now owns several pieces of infrastructure:
+### Native Java
+
+A typical design might maintain a map of state and a map of locks:
+
+```java
+ConcurrentHashMap<String, Session> sessions = new ConcurrentHashMap<>();
+ConcurrentHashMap<String, ReentrantLock> locks = new ConcurrentHashMap<>();
+
+void update(String sessionId, Consumer<Session> operation) {
+    var lock = locks.computeIfAbsent(sessionId, id -> new ReentrantLock());
+    lock.lock();
+    try {
+        operation.accept(sessions.get(sessionId));
+    } finally {
+        lock.unlock();
+    }
+}
+```
+
+This is a legitimate design, but lifecycle and cleanup of per-key locks now become another production concern.
+
+### LoomBus
+
+For a bounded set of logical domains, the endpoint itself can represent the serialized domain:
+
+```java
+bus.register(
+        "authentication-session",
+        EndpointConfig.stateful(10_000),
+        (SessionCommand command) -> sessionState.apply(command));
+
+var result = bus.request(
+        "authentication-session",
+        new SessionCommand(sessionId, AUTHENTICATE));
+```
+
+The endpoint establishes the serialization boundary and mailbox admission.
+
+For very large or dynamic key spaces, do **not** create an unlimited endpoint per key. A production LoomBus design should eventually provide sharding/partitioning semantics:
 
 ```text
-entity lookup
-   +
-lock selection
-   +
-queueing
-   +
-execution
-   +
-rejection
-   +
-shutdown
+session key
+    ↓
+partition(key)
+    ↓
+bounded endpoint/owner
 ```
 
-### LoomBus model
+### What LoomBus changes
 
-The endpoint/mailbox becomes the concurrency boundary.
+The concurrency protocol becomes a named architectural boundary rather than a collection of per-object locks.
 
-```text
-Commands
-   │
-   ▼
-Endpoint mailbox
-   │
-   ├── command 1
-   ├── command 2
-   ├── command 3
-   └── command 4
-          │
-          ▼
-   controlled execution
-```
+### Native Java may be better
 
-The useful abstraction is not simply “a queue.” It is the combination of **message admission + ownership + execution + completion**.
-
-### Design consideration
-
-If there are many independent entities, one endpoint per entity may be excessive. A future LoomBus design may need sharding/partitioning semantics so that many logical owners can share a bounded number of execution domains.
+If there are millions of dynamic keys, a carefully designed keyed executor or partitioned concurrent structure may be simpler until LoomBus provides native sharding semantics.
 
 ---
 
-## 3. Parallel risk or decision checks
+## 3. Parallel MFA/risk decision checks
 
-### Production scenario
+### Production problem
 
-An authentication or authorization request needs several independent checks:
+An authentication request needs independent checks:
 
 ```text
-                 Request
-                    │
-          ┌─────────┼─────────┐
-          ▼         ▼         ▼
-         Geo      Device   Behaviour
-          │         │         │
-          └─────────┼─────────┘
-                    ▼
-                 Decision
+                    Risk request
+                         │
+            ┌────────────┼────────────┐
+            ▼            ▼            ▼
+           Geo         Device     Behaviour
+            │            │            │
+            └────────────┼────────────┘
+                         ▼
+                      Decision
 ```
 
 ### Native Java
 
-A common solution is `CompletableFuture` with an executor:
+A common implementation uses `CompletableFuture`:
 
 ```java
-var geo = CompletableFuture.supplyAsync(() -> geoCheck(request), executor);
-var device = CompletableFuture.supplyAsync(() -> deviceCheck(request), executor);
-var behaviour = CompletableFuture.supplyAsync(() -> behaviourCheck(request), executor);
+var geo = CompletableFuture.supplyAsync(
+        () -> geoCheck(request), executor);
+
+var device = CompletableFuture.supplyAsync(
+        () -> deviceCheck(request), executor);
+
+var behaviour = CompletableFuture.supplyAsync(
+        () -> behaviourCheck(request), executor);
+
+return CompletableFuture.allOf(geo, device, behaviour)
+        .thenApply(ignored -> decide(
+                geo.join(), device.join(), behaviour.join()));
 ```
 
-This is powerful, but larger workflows can accumulate future composition, timeout, cancellation, exception, and executor-management code.
+This is already a strong solution.
 
 ### LoomBus
 
-Each independent operation can be represented as an in-process endpoint operation, with virtual threads handling blocking work naturally.
+Represent meaningful checks as endpoints and use the bus for the in-process request boundary:
 
-The intended benefit is **simpler orchestration and explicit concurrency boundaries**, not an assertion that LoomBus is inherently faster than `CompletableFuture`.
+```java
+bus.register("geo", EndpointConfig.concurrent(1_000, 100),
+        this::geoCheck);
 
-### Good fit when
+bus.register("device", EndpointConfig.concurrent(1_000, 100),
+        this::deviceCheck);
 
-- checks are independent
-- operations belong to one JVM
-- each operation has a meaningful endpoint boundary
-- failures and admission limits need explicit semantics
+bus.register("behaviour", EndpointConfig.concurrent(1_000, 100),
+        this::behaviourCheck);
 
-### Native Java may be simpler when
+var geo = bus.request("geo", request);
+var device = bus.request("device", request);
+var behaviour = bus.request("behaviour", request);
 
-There are only two small asynchronous calls and no need for endpoint-level lifecycle, backpressure, ownership, or communication semantics.
+return CompletableFuture.allOf(geo, device, behaviour)
+        .thenApply(ignored -> decide(
+                geo.join(), device.join(), behaviour.join()));
+```
+
+The important point is that LoomBus does **not** magically eliminate orchestration code. The current API still returns `CompletableFuture`, so `CompletableFuture` remains a natural aggregation primitive.
+
+The LoomBus value is that each check now has an explicit endpoint boundary with its own concurrency and mailbox capacity.
+
+### What LoomBus changes
+
+```text
+Native:
+workflow → futures → executor → functions
+
+LoomBus:
+workflow → endpoint messages → controlled execution
+```
+
+### Native Java may be better
+
+If these are just three small functions and no independent endpoint semantics are needed, plain structured concurrency or `CompletableFuture` is likely simpler.
 
 ---
 
-## 4. Blocking database and HTTP workflow
+## 4. Blocking database + HTTP workflow
 
-### Production scenario
+### Production problem
 
-A request performs several blocking operations:
+A business operation performs blocking I/O:
 
 ```text
 Request
-  │
-  ▼
+  ↓
 DB lookup
-  │
-  ▼
-HTTP service
-  │
-  ▼
+  ↓
+HTTP risk service
+  ↓
 DB update
-  │
-  ▼
+  ↓
 Response
 ```
 
-### Traditional Java
+### Native Java with virtual threads
 
-Historically, developers had to carefully size platform-thread pools because blocking operations occupied threads.
-
-With modern Java virtual threads, this concern changes substantially. Native Java can already express this workflow directly:
+Modern Java can already make this straightforward:
 
 ```java
 var user = repository.findUser(id);
@@ -234,434 +318,785 @@ repository.updateDecision(id, risk);
 return risk;
 ```
 
-### Important conclusion
+There is no need to introduce LoomBus merely because the work blocks.
 
-**LoomBus is not necessary merely because the code uses blocking I/O.** Java virtual threads already solve much of the thread-efficiency problem.
+### LoomBus
 
-LoomBus becomes relevant when this workflow also needs explicit endpoint ownership, admission control, communication, lifecycle, or backpressure.
+If this operation is also a bounded internal business endpoint:
 
-This distinction is important to the project's positioning.
+```java
+bus.register(
+        "risk-decision",
+        EndpointConfig.concurrent(2_000, 100),
+        request -> {
+            var user = repository.findUser(request.userId());
+            var risk = riskClient.check(user);
+            repository.updateDecision(request.userId(), risk);
+            return risk;
+        });
+
+var result = bus.request("risk-decision", request);
+```
+
+The handler can perform blocking I/O while running on a virtual thread. The endpoint adds an explicit admission and concurrency boundary around the business operation.
+
+### What LoomBus changes
+
+Not thread efficiency. **Execution policy and communication semantics.**
+
+Virtual threads solve the former. LoomBus can address the latter.
+
+### Native Java may be better
+
+If the operation is directly called from the request handler and needs no asynchronous communication or bounded endpoint semantics, keep the direct method call.
 
 ---
 
 ## 5. In-process event fan-out
 
-### Production scenario
+### Production problem
 
-An event needs to reach multiple independent components in the same JVM.
+An authentication event needs several independent consumers in the same JVM:
 
 ```text
-                 Event
-                   │
-              LoomBus
-          ┌────────┼────────┐
-          ▼        ▼        ▼
-       Audit    Metrics   Notification
+             AuthenticationEvent
+                     │
+                  Bus
+          ┌──────────┼──────────┐
+          ▼          ▼          ▼
+        Audit      Metrics    Notification
 ```
 
 ### Native Java
 
-Common approaches include direct callbacks, listener lists, application events, queues, or custom executor dispatch.
+A simple listener design might be:
 
-These approaches are perfectly reasonable for small systems.
+```java
+List<Consumer<AuthEvent>> listeners = new CopyOnWriteArrayList<>();
+
+void publish(AuthEvent event) {
+    for (var listener : listeners) {
+        listener.accept(event);
+    }
+}
+```
+
+If consumers need asynchronous execution, the application adds executors, queues, error handling, and admission rules.
 
 ### LoomBus
 
-Pub/sub provides an explicit communication boundary with endpoint admission and subscriber execution.
+```java
+bus.register(
+        "audit",
+        EndpointConfig.concurrent(1_000, 4),
+        event -> auditService.record((AuthEvent) event));
 
-### Important limitation
+bus.register(
+        "metrics",
+        EndpointConfig.concurrent(1_000, 2),
+        event -> metricsService.record((AuthEvent) event));
 
-LoomBus is **not a durable event broker**.
+bus.register(
+        "notification",
+        EndpointConfig.concurrent(500, 20),
+        event -> notificationService.send((AuthEvent) event));
 
-If the event must survive process failure, be replayed later, or be consumed by another service, use Kafka, Pulsar, or another durable messaging system.
+bus.subscribe("audit", (AuthEvent event) -> auditService.record(event));
+```
+
+Or, using the current API's endpoint pub/sub model:
+
+```java
+bus.register(
+        "auth-events",
+        EndpointConfig.concurrent(1_000, 20),
+        ignored -> null);
+
+bus.subscribe("auth-events", (AuthEvent event) -> auditService.record(event));
+bus.subscribe("auth-events", (AuthEvent event) -> metricsService.record(event));
+bus.subscribe("auth-events", (AuthEvent event) -> notificationService.send(event));
+
+bus.publish("auth-events", new AuthEvent(userId));
+```
+
+### Important semantic issue
+
+The current implementation enqueues separately for each subscriber. If one subscriber rejects after another has accepted, fan-out can be partially delivered. This must be addressed before claiming atomic broadcast semantics.
+
+### What LoomBus changes
+
+It provides a common in-process event boundary with endpoint capacity and subscriber execution.
+
+### Native Java may be better
+
+For two local listeners, direct callbacks are simpler.
+
+### Do not use LoomBus when
+
+The event must survive process failure, be replayed, or cross service boundaries. Use a durable broker such as Kafka or Pulsar.
 
 ---
 
 ## 6. Burst traffic and backpressure
 
-### Production scenario
+### Production problem
 
-A producer suddenly generates work faster than a component can process it.
+A producer can generate work much faster than a subsystem can process it.
 
 ```text
-100,000 incoming operations
-             │
-             ▼
-       processing rate
-          1,000/sec
+100,000 operations
+       │
+       ▼
+ processing capacity
+       │
+       ▼
+   1,000/sec
 ```
 
-### Dangerous native design
+### Native Java
+
+A bounded executor/queue can solve this:
 
 ```java
+var queue = new ArrayBlockingQueue<Request>(1_000);
+var executor = new ThreadPoolExecutor(
+        50,
+        50,
+        0,
+        TimeUnit.MILLISECONDS,
+        queue,
+        new ThreadPoolExecutor.AbortPolicy());
+
 executor.submit(() -> process(request));
 ```
 
-If admission is effectively unbounded, work can accumulate faster than it is completed, increasing memory use and latency and potentially contributing to cascading failure.
-
-### Native Java can solve this
-
-A bounded `BlockingQueue`, semaphore, rate limiter, or bounded executor can provide admission control.
+This is a good and established solution.
 
 ### LoomBus
 
-The mailbox capacity and backpressure policy are part of the endpoint configuration.
+Capacity and admission are configured on the endpoint:
 
-```text
-Producer
-   │
-   ▼
-bounded mailbox
-   │
-   ├── WAIT
-   ├── REJECT
-   └── TIMEOUT
-   │
-   ▼
-controlled workers
+```java
+bus.register(
+        "notification",
+        EndpointConfig.concurrent(1_000, 50)
+                .withBackpressure(Backpressure.REJECT),
+        this::processNotification);
+
+bus.request("notification", request)
+        .whenComplete((result, error) -> {
+            if (error != null) {
+                // admission or processing failure
+            }
+        });
 ```
 
-### What LoomBus contributes
+Or with bounded waiting:
 
-It makes backpressure part of the communication abstraction rather than an unrelated executor detail.
+```java
+var config = EndpointConfig.concurrent(1_000, 50)
+        .withBackpressure(Backpressure.TIMEOUT, Duration.ofMillis(100));
+```
 
-The application still chooses its concurrency and capacity budget.
+### What LoomBus changes
+
+The important difference is that backpressure is part of the **message endpoint contract** rather than something separately assembled around an executor.
+
+### Important distinction
+
+Virtual threads are cheap, but the work they perform is not free. Database connections, downstream APIs, CPU, memory, and queues remain bounded resources.
 
 ---
 
 ## 7. Stateful multi-stage workflow
 
-### Production scenario
+### Production problem
 
-A workflow accumulates mutable state through several stages:
-
-```text
-Create
-  │
-  ▼
-Validate
-  │
-  ▼
-Enrich
-  │
-  ▼
-Decide
-  │
-  ▼
-Persist
-```
-
-### Shared-state native approach
-
-A workflow object can be passed between concurrent operations while multiple threads mutate it. That requires synchronization or carefully designed immutable snapshots.
-
-### LoomBus approach
-
-Prefer moving ownership of the workflow state between stages.
+A workflow has mutable state that progresses through stages:
 
 ```text
-Worker A
-   │ owns state
-   ▼
-Worker B
-   │ owns state
-   ▼
-Worker C
-   │ owns state
-   ▼
-Result
+Create → Validate → Enrich → Decide → Persist
 ```
 
-The architectural principle is:
-
-> **Move the state to the computation instead of moving the computation to shared state.**
-
-Java does not enforce Rust-style move semantics, so ownership transfer remains an API and coding contract.
-
----
-
-## 8. Failure in parallel work
-
-### Production scenario
-
-Several operations execute in parallel and one fails.
-
-```text
-             Parent
-          /    |     \
-        Geo  Device  Behaviour
-         ✓      ✓        X
-                        │
-                     failure
-```
+A dangerous design lets several workers mutate the same workflow object concurrently.
 
 ### Native Java
 
-Using futures directly, the application has to define what failure means:
+One approach is a shared object protected by a lock:
 
-- should siblings continue?
-- should they be cancelled?
-- what exception reaches the caller?
-- what happens to late results?
-- how are timeouts handled?
+```java
+synchronized (workflow) {
+    workflow.setCustomer(customer);
+    workflow.setRisk(risk);
+}
+```
 
-Java's structured concurrency APIs are also relevant here and should be considered before building custom semantics.
+Another is to make every stage immutable and create a new state object.
 
 ### LoomBus
 
-A future version should integrate clearly with structured concurrency so that the communication abstraction does not create detached work accidentally.
+Use messages to move ownership between endpoint operations:
 
-The intended semantic model is:
+```java
+bus.register("validate", EndpointConfig.stateful(500),
+        (Workflow workflow) -> validate(workflow));
 
-```text
-failure
-   ↓
-operation/scope failure
-   ↓
-cancel remaining related work
-   ↓
-propagate failure
+bus.register("enrich", EndpointConfig.stateful(500),
+        (Workflow workflow) -> enrich(workflow));
+
+bus.register("decide", EndpointConfig.stateful(500),
+        (Workflow workflow) -> decide(workflow));
+
+var validated = bus.request("validate", workflow);
+var enriched = validated.thenCompose(
+        state -> bus.request("enrich", state));
+var decision = enriched.thenCompose(
+        state -> bus.request("decide", state));
 ```
 
-The exact cancellation semantics must be explicit and tested.
+The conceptual model is:
+
+```text
+Stage A owns state
+       ↓
+ownership transfer
+       ↓
+Stage B owns state
+       ↓
+ownership transfer
+       ↓
+Stage C owns state
+```
+
+The object is transferred by reference inside the JVM; LoomBus does not serialize or deep-copy the message.
+
+### What LoomBus changes
+
+It encourages ownership transfer instead of shared mutation.
+
+Java does not enforce move semantics, so this remains a programming contract: once ownership has transferred, previous code should not mutate the object concurrently.
 
 ---
 
-## 9. Per-session or per-tenant serialization
+## 8. Failure in parallel operations
 
-### Production scenario
+### Production problem
 
-Different tenants can process concurrently, but operations belonging to the same tenant must be serialized.
+Several checks execute in parallel and one fails:
 
 ```text
-Tenant A ──> A1 ──> A2 ──> A3
+Parent
+ ├── Geo       ✓
+ ├── Device    ✓
+ └── Behaviour X
+```
 
-Tenant B ──> B1 ──> B2 ──> B3
+The application must decide whether siblings continue, stop, or are cancelled.
 
-A and B can run concurrently.
+### Native Java
+
+With futures, developers explicitly compose the policy:
+
+```java
+var a = CompletableFuture.supplyAsync(this::a, executor);
+var b = CompletableFuture.supplyAsync(this::b, executor);
+var c = CompletableFuture.supplyAsync(this::c, executor);
+
+return CompletableFuture.allOf(a, b, c);
+```
+
+Cancellation and timeout policy then has to be defined separately.
+
+### LoomBus
+
+Current LoomBus requests naturally expose failure through their returned futures:
+
+```java
+var geo = bus.request("geo", request);
+var device = bus.request("device", request);
+var behaviour = bus.request("behaviour", request);
+
+return CompletableFuture.allOf(geo, device, behaviour)
+        .thenApply(ignored -> decide(
+                geo.join(), device.join(), behaviour.join()));
+```
+
+A production version of LoomBus should integrate explicitly with structured concurrency so that related work has a well-defined lifetime and fail-fast/cancellation behavior.
+
+### Current status
+
+Do not document current LoomBus as providing complete structured cancellation semantics yet. This is an area for implementation and testing.
+
+---
+
+## 9. Per-tenant or per-session serialization
+
+### Production problem
+
+Different tenants may process concurrently, but commands for the same tenant must be serialized:
+
+```text
+Tenant A → A1 → A2 → A3
+
+Tenant B → B1 → B2 → B3
+
+A and B execute concurrently.
 ```
 
 ### Native Java
 
-A common implementation uses maps of locks, keyed executors, partitions, or queues.
+Typical solutions include keyed locks, striped locks, keyed executors, partitions, or custom actor-like queues.
 
-### LoomBus opportunity
+### LoomBus today
 
-This is a natural extension of the ownership model: each logical owner gets a serialized execution domain while unrelated owners remain concurrent.
+For a fixed set of logical domains, an endpoint can provide the serialization boundary:
 
-A production-ready implementation would need careful lifecycle management so that millions of transient keys do not create unbounded endpoint objects.
+```java
+bus.register(
+        "tenant-command",
+        EndpointConfig.stateful(10_000),
+        command -> tenantState.apply(command));
+```
+
+For dynamic tenants, however, the application must not blindly create one endpoint per tenant.
+
+### Required future capability
+
+A stronger LoomBus API could eventually express:
+
+```java
+bus.registerPartitioned(
+        "tenant-command",
+        keyExtractor = Command::tenantId,
+        partitions = 64,
+        ...);
+```
+
+Conceptually:
+
+```text
+Tenant ID
+    ↓
+hash / partition
+    ↓
+64 bounded owners
+    ↓
+commands for same partition serialized
+```
+
+This should be treated as a future design, not as a current API claim.
 
 ---
 
 ## 10. In-process command processing
 
-### Production scenario
+### Production problem
 
-A subsystem needs asynchronous command delivery but does not need durability or network communication.
+A subsystem needs asynchronous command processing but does not need network communication or durable messaging.
 
 Examples:
 
 - notification preparation
-- cache invalidation work
 - local indexing
+- cache invalidation
 - internal workflow commands
-- CPU-bound or blocking business operations with bounded admission
+- bounded background processing
 
 ### Native Java
 
-Possible building blocks:
+The application might assemble:
 
 ```text
 BlockingQueue
+     +
 ExecutorService
-worker threads
+     +
 Future
-locks
-semaphores
+     +
+Semaphore
+     +
+shutdown handling
 ```
 
-The developer assembles the protocol.
+For example:
+
+```java
+BlockingQueue<Command> queue = new ArrayBlockingQueue<>(1_000);
+ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
+
+executor.submit(() -> {
+    while (!Thread.currentThread().isInterrupted()) {
+        var command = queue.take();
+        process(command);
+    }
+});
+```
 
 ### LoomBus
 
-LoomBus packages the communication model around an endpoint:
+The same architectural boundary becomes an endpoint:
+
+```java
+bus.register(
+        "local-indexer",
+        EndpointConfig.concurrent(1_000, 20)
+                .withBackpressure(Backpressure.REJECT),
+        command -> {
+            index((IndexCommand) command);
+            return null;
+        });
+
+bus.request("local-indexer", command);
+```
+
+### What LoomBus changes
+
+Instead of each subsystem inventing its own queue/executor/admission protocol, the endpoint provides a common vocabulary:
 
 ```text
 request
   ↓
 mailbox
   ↓
-execution
+controlled execution
   ↓
-response/failure
+completion / failure
 ```
 
-The value is a consistent abstraction for this class of in-process communication.
+### Native Java may be better
+
+If the subsystem only needs a single queue consumer and has no need for request/response, endpoint ownership, or standardized admission semantics, a plain `BlockingQueue` can be clearer.
 
 ---
 
-# LoomBus vs Native Java: Architectural Comparison
+# Scenario 11: Request-scoped fan-out with blocking operations
 
-| Concern | Native Java building blocks | LoomBus model |
+### Production problem
+
+One request performs three independent downstream calls and then combines them.
+
+### Native Java
+
+```java
+try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+    var geo = executor.submit(() -> geoClient.lookup(request));
+    var device = executor.submit(() -> deviceClient.lookup(request));
+    var reputation = executor.submit(() -> reputationClient.lookup(request));
+
+    return decide(geo.get(), device.get(), reputation.get());
+}
+```
+
+This is already concise with virtual threads.
+
+### LoomBus
+
+If the checks are reusable application endpoints with independent capacity policies:
+
+```java
+bus.register("geo", EndpointConfig.concurrent(500, 50),
+        geoClient::lookup);
+
+bus.register("device", EndpointConfig.concurrent(500, 50),
+        deviceClient::lookup);
+
+bus.register("reputation", EndpointConfig.concurrent(500, 20),
+        reputationClient::lookup);
+
+var geo = bus.request("geo", request);
+var device = bus.request("device", request);
+var reputation = bus.request("reputation", request);
+
+return CompletableFuture.allOf(geo, device, reputation)
+        .thenApply(v -> decide(
+                geo.join(), device.join(), reputation.join()));
+```
+
+### Why use LoomBus here?
+
+Not because the native virtual-thread solution is bad. The reason would be that **geo, device, and reputation are independently managed internal capabilities**, each with its own capacity, concurrency, failure, and communication boundary.
+
+If that distinction does not matter, native structured concurrency is simpler.
+
+---
+
+# Scenario 12: When LoomBus should not be used
+
+## Cross-service request
+
+```text
+Service A ───── HTTP/gRPC ─────> Service B
+```
+
+Use REST, HTTP, gRPC, or another network protocol.
+
+LoomBus is in-process.
+
+## Durable event
+
+```text
+Service A → Kafka/Pulsar → Service B
+```
+
+Use a durable broker when messages need persistence, replay, independent consumers, or cross-process delivery.
+
+## Simple synchronous method
+
+```java
+var result = service.calculate(input);
+```
+
+Do not add a message bus merely to avoid a method call.
+
+## Simple atomic state
+
+```java
+counter.incrementAndGet();
+```
+
+Use the appropriate Java concurrency primitive when that is the natural model.
+
+---
+
+# Native Java vs LoomBus: Production Comparison
+
+| Production concern | Native Java | LoomBus |
 |---|---|---|
-| Simple synchronous operation | Method call | Method call is still preferred |
-| Async result | `Future` / `CompletableFuture` | Request returns a future |
-| Blocking I/O | Virtual threads | Virtual threads + endpoint semantics |
-| Stateful serialization | Locks / synchronized / custom queues | Stateful endpoint ownership |
-| In-process messages | Queue / callback / custom protocol | Endpoint mailbox |
-| Backpressure | Semaphore / bounded queue / executor | Endpoint admission policy |
-| Fan-out | Listeners / callbacks / futures | Pub/sub |
-| Concurrent workers | ExecutorService | Endpoint concurrency |
-| Failure propagation | Application-defined | Endpoint/request semantics |
+| Simple synchronous business operation | Method call | Method call is still preferred |
+| Async result | `Future` / `CompletableFuture` | `request()` returns `CompletableFuture` |
+| Blocking I/O | Virtual threads | Virtual threads + endpoint boundary |
+| Stateful serialization | `synchronized` / `Lock` / actor-like queue | Stateful endpoint with concurrency `1` |
+| In-process command delivery | Queue + executor | Endpoint mailbox |
+| Backpressure | Bounded queue / semaphore / executor policy | Endpoint capacity + backpressure policy |
+| Event fan-out | Callbacks/listeners + dispatch | `publish()` / `subscribe()` |
+| Independent worker concurrency | Executor configuration | Endpoint configuration |
+| Message ownership | Application convention | Explicit architectural convention |
+| Failure propagation | `Future` / scope semantics | Request future + endpoint semantics |
+| Structured cancellation | Java structured concurrency | Must integrate carefully; not fully solved yet |
 | Durable messaging | Kafka/Pulsar/etc. | **Not LoomBus** |
-| Cross-process communication | REST/gRPC/messaging | **Not LoomBus** |
-| Distributed coordination | Distributed systems tooling | **Not LoomBus** |
+| Cross-process communication | HTTP/gRPC/messaging | **Not LoomBus** |
+| Distributed coordination | Distributed systems primitives | **Not LoomBus** |
 
 ---
 
-# The Core Architectural Difference
+# What LoomBus Actually Adds
 
-Native Java gives you excellent primitives:
+Native Java already gives us:
 
 ```text
-Thread / Virtual Thread
-Executor
-Future
-Queue
-Lock
-Semaphore
-Atomic
+Virtual Threads
+Executors
 CompletableFuture
-StructuredTaskScope
+Locks
+Atomics
+Queues
+Semaphores
+Structured Concurrency
 ```
 
-LoomBus should not attempt to replace these primitives.
-
-Its purpose is to provide a **higher-level communication and ownership model** on top of them.
+LoomBus should sit above those primitives and provide a consistent application-level model:
 
 ```text
-              Native Java
-                   │
-      ┌────────────┼────────────┐
-      │            │            │
-   Virtual       Queue        Future
-   threads       Lock       Semaphore
-      │            │            │
-      └────────────┼────────────┘
-                   ▼
-                LoomBus
-                   │
-      ┌────────────┼────────────┐
-      ▼            ▼            ▼
-   Ownership    Mailbox    Backpressure
-      │            │            │
-      └────────────┼────────────┘
-                   ▼
-          Business operation
+              Native Java primitives
+                       │
+          ┌────────────┼────────────┐
+          ▼            ▼            ▼
+       Threads        Queue        Future
+          │            │            │
+          └────────────┼────────────┘
+                       ▼
+                    LoomBus
+                       │
+          ┌────────────┼────────────┐
+          ▼            ▼            ▼
+      Endpoint       Mailbox     Admission
+          │            │            │
+          ▼            ▼            ▼
+      Ownership     Ordering    Backpressure
+          │            │            │
+          └────────────┼────────────┘
+                       ▼
+                Business operation
 ```
+
+The proposed value proposition is therefore:
+
+> **LoomBus turns a collection of Java concurrency primitives into an explicit in-process communication boundary for business operations.**
 
 ---
 
-# When LoomBus Is a Strong Candidate
+# The Core Ownership Model
 
-Consider LoomBus when most of these are true:
+The strongest LoomBus scenario is one where mutable state has a clear logical owner.
 
-- communication happens **inside one JVM**
-- multiple concurrent callers interact with the same logical business boundary
-- mutable state has a clear owner
-- commands/events need controlled admission
-- ordering matters for at least some endpoints
-- the system needs bounded concurrency or mailbox capacity
-- asynchronous work needs a consistent request/response or event abstraction
-- the application would otherwise build several pieces of custom concurrency infrastructure
+Instead of:
 
-# When Native Java Is the Better Choice
+```text
+many workers
+     │
+     ├── mutate ──┐
+     ├── mutate ──┼──> shared state
+     └── mutate ──┘
+             protected by locks
+```
 
-Prefer ordinary Java when:
+prefer:
 
-- a direct method call is enough
-- a simple `CompletableFuture` solves the problem
-- a standard concurrent collection is sufficient
+```text
+Command
+   ↓
+Mailbox
+   ↓
+Single owner
+   ↓
+Mutate state
+   ↓
+Transfer result/state
+   ↓
+Next operation
+```
+
+The principle is:
+
+> **Prefer moving ownership of mutable state between operations over allowing multiple concurrent operations to mutate the same state.**
+
+This is an architectural convention, not a Java language guarantee. Messages should generally be immutable; if mutable objects are transferred by reference, previous owners must stop mutating them.
+
+---
+
+# When to Introduce LoomBus
+
+LoomBus is a strong candidate when most of the following are true:
+
+- the communication is inside one JVM
+- there is a meaningful business endpoint or operation boundary
+- multiple callers can operate concurrently
+- state has a clear logical owner
+- ordering for an endpoint matters
+- bounded admission is important
+- different operations need different concurrency budgets
+- the application is repeatedly building queues, executors, locks, callbacks, and failure protocols
+- asynchronous communication should have one consistent abstraction
+
+# When to Stay With Native Java
+
+Prefer native Java when:
+
+- a method call is enough
+- `CompletableFuture` or structured concurrency directly expresses the workflow
+- a standard concurrent collection solves the problem
 - an atomic variable is the natural model
-- structured concurrency alone expresses the workflow cleanly
-- introducing an endpoint/message abstraction would add more complexity than value
+- a simple bounded executor/queue is clearer
+- LoomBus would introduce an abstraction without providing a meaningful architectural boundary
 
 # When LoomBus Is the Wrong Boundary
 
-Do not use LoomBus as a replacement for distributed infrastructure.
+Do not use LoomBus for:
 
-```text
-Different JVM / Pod
-        │
-        ├── REST / HTTP
-        ├── gRPC
-        ├── Kafka
-        ├── Pulsar
-        └── durable queue
-```
-
-LoomBus is intentionally **in-process**.
-
-It does not provide:
-
-- durable storage
-- cross-process delivery
-- message replay
-- distributed consensus
+- cross-process communication
+- cross-pod communication
+- durable messaging
+- replayable event streams
+- distributed coordination
 - distributed transactions
 - guaranteed delivery after process failure
-- cross-service discovery
+- service-to-service discovery
+
+Use the appropriate distributed-system mechanism instead.
 
 ---
 
 # Production Decision Checklist
 
-Before introducing LoomBus, ask:
+### 1. Is the communication inside one JVM?
 
-### 1. Is this communication inside one JVM?
+If no → use HTTP/gRPC/messaging.
 
-If no, LoomBus is not the right boundary.
+### 2. Is there a meaningful endpoint boundary?
 
-### 2. Is there a meaningful business operation or endpoint boundary?
+If no → a direct method call may be better.
 
-If no, a method call may be simpler.
+### 3. Does mutable state have a clear owner?
 
-### 3. Is there mutable state with a clear logical owner?
+If yes → a stateful endpoint may be a good fit.
 
-If yes, a stateful endpoint may be useful.
+### 4. Do producers need bounded admission?
 
-### 4. Do concurrent producers need controlled admission?
+If yes → LoomBus mailbox capacity/backpressure may be useful.
 
-If yes, mailbox capacity and backpressure may justify LoomBus.
+### 5. Does each operation need an independent concurrency budget?
 
-### 5. Does the operation need independent concurrent work?
+If yes → endpoint-level configuration may be useful.
 
-If yes, compare LoomBus with structured concurrency and `CompletableFuture` for the specific workflow.
+### 6. Is the work merely blocking I/O?
 
-### 6. Does the message need to survive a process crash?
+If yes → virtual threads may already solve the problem. LoomBus is optional.
 
-If yes, use durable messaging instead.
+### 7. Does the message need to survive process failure?
 
-### 7. Does the operation cross a service boundary?
+If yes → use durable messaging.
 
-If yes, use HTTP/gRPC/messaging rather than LoomBus.
+### 8. Does the application need structured cancellation?
 
-### 8. Can ownership be made explicit?
+If yes → compare against Java structured concurrency and ensure LoomBus does not detach work from the parent scope.
 
-If yes, LoomBus's ownership model may simplify the concurrency design.
+### 9. Would a queue + executor be simpler?
+
+If yes → use the simpler solution unless LoomBus provides additional architectural value.
 
 ---
 
-# The Principle Behind LoomBus
+# The Testable Production Hypothesis
 
-The project's central idea can be summarized as:
+LoomBus should eventually be evaluated against native Java implementations of the **same scenarios**, not artificial microbenchmarks alone.
 
-> **Concurrency should disappear from business logic without disappearing from the architecture.**
+For each scenario, compare:
 
-And more specifically:
+```text
+Native Java
+     vs
+LoomBus
+```
 
-> **Prefer moving ownership of mutable state between operations over allowing multiple concurrent operations to mutate the same state.**
+Measure:
 
-LoomBus is useful when those principles make a production concurrency boundary easier to understand, control, test, and operate than a collection of lower-level Java concurrency primitives.
+- throughput
+- p50 latency
+- p95 latency
+- p99 latency
+- CPU utilization
+- heap allocation
+- memory usage
+- queue depth
+- rejected work
+- cancellation latency
+- failure propagation latency
+- correctness under contention
 
-It should not be adopted simply because virtual threads exist.
+The goal is not to prove that LoomBus is faster in every case.
+
+The goal is to determine whether the higher-level abstraction provides measurable operational or engineering benefits for the production scenarios it targets.
+
+---
+
+# Summary
+
+LoomBus should not be positioned as:
+
+> “A better executor.”
+
+or:
+
+> “A replacement for virtual threads.”
+
+or:
+
+> “A replacement for Kafka.”
+
+The production-oriented positioning is narrower:
+
+> **LoomBus is an in-process concurrency and communication model for business operations that need explicit ownership, mailboxing, controlled execution, completion, ordering, and backpressure.**
+
+The strongest use case is where concurrent business operations would otherwise require developers to assemble and maintain several lower-level Java concurrency mechanisms around the same logical boundary.
+
+If native Java expresses the problem more clearly, use native Java. LoomBus earns its place when the endpoint/ownership model makes the production architecture easier to reason about and operate.
