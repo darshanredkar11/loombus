@@ -416,7 +416,7 @@ Detailed design and use-case documentation lives under [`docs/`](docs/).
 
  The API is intentionally small while we validate semantics, failure behavior, memory visibility, overload behavior, and performance.
 
-Current validation includes primitive-level tests plus accumulated-flow coverage for stateful aggregates and workflow sessions, fan-out/fan-in, blocking stage composition, mutable-state pipeline transfer, endpoint concurrency/isolation budgets, REJECT/TIMEOUT/WAIT overload, close/admission behavior, partial publish, cancellation, failure recovery, worker interruption/startup recovery, reference identity, safe publication, and the reusable LoomBusOps helper. The latest code commit `98f6fb3` passed both test and benchmark CI; final documentation-only commit CI is pending.
+Current validation includes primitive-level tests plus accumulated-flow coverage for stateful aggregates and workflow sessions, fan-out/fan-in, blocking stage composition, mutable-state pipeline transfer, endpoint concurrency/isolation budgets, REJECT/TIMEOUT/WAIT overload, close/admission behavior, partial publish, cancellation, failure recovery, worker interruption/startup recovery, reference identity, safe publication, and the reusable LoomBusOps helper. The latest code commit `98f6fb3` passed both test and benchmark CI; current-branch CI is the final readiness check.
 
 Remaining review work:
 
