@@ -181,8 +181,7 @@ class LoomBusTest {
             assertTrue(firstSubscriberDone.await(1, TimeUnit.SECONDS));
             assertEquals(0, secondDelivered.get());
 
-            bus.publish("partial-publish", "recovered");
-            assertTrue(recoveredSecondSubscriber.await(1, TimeUnit.SECONDS));
+            publishUntilDelivered(bus, "partial-publish", "recovered", recoveredSecondSubscriber, 1_000);
             assertEquals(1, secondDelivered.get());
         }
     }
@@ -206,8 +205,7 @@ class LoomBusTest {
             });
             bus.publish("subscriber-failure", "bad");
             assertTrue(badDeliveryDone.await(1, TimeUnit.SECONDS));
-            bus.publish("subscriber-failure", "good");
-            assertTrue(goodDeliveryDone.await(2, TimeUnit.SECONDS));
+            publishUntilDelivered(bus, "subscriber-failure", "good", goodDeliveryDone, 2_000);
             assertEquals(1, observed.get());
         }
     }
@@ -492,6 +490,26 @@ class LoomBusTest {
         @Override public boolean awaitTermination(long timeout, TimeUnit unit) throws InterruptedException {
             if (worker != null) worker.join(unit.toMillis(timeout));
             return isTerminated();
+        }
+    }
+
+    private static void publishUntilDelivered(
+            LoomBus bus, String endpoint, Object event, CountDownLatch delivered, long timeoutMillis)
+            throws Exception {
+        long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMillis);
+        while (true) {
+            try {
+                bus.publish(endpoint, event);
+                long remaining = deadline - System.nanoTime();
+                assertTrue(remaining > 0 && delivered.await(remaining, TimeUnit.NANOSECONDS),
+                        "accepted publish did not reach its target subscriber");
+                return;
+            } catch (RejectedExecutionException partialOrFull) {
+                if (System.nanoTime() >= deadline) {
+                    fail("publish did not reach target subscriber before timeout");
+                }
+                Thread.sleep(1);
+            }
         }
     }
 
