@@ -273,6 +273,8 @@ Gate 1 is ready for sign-off when:
 
 The foundation remains authoritative for the thesis. Later gates refine implementation and test evidence; they do not broaden the goal or imply deferred features exist.
 
+**Contract register note:** Section 6 and Section 7 preserve the original Gate 1 audit trail, including items marked open and proposed. For current 0.1 observable semantics, use the decisions in [GATE-4-CONTRACTS.md](GATE-4-CONTRACTS.md); it supersedes those historical open/proposed entries where the selected flows require a decision.
+
 ## 10. Source documents
 
 - [README — LoomBus thesis and overview](../README.md)
