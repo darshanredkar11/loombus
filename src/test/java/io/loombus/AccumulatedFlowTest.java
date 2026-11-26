@@ -71,7 +71,7 @@ class AccumulatedFlowTest {
         try (var bus = new LoomBus()) {
             var active = new java.util.concurrent.atomic.AtomicInteger();
             var peak = new java.util.concurrent.atomic.AtomicInteger();
-            var started = new CountDownLatch(3);
+            var started = new CountDownLatch(2);
             var release = new CountDownLatch(1);
             bus.register("budget", EndpointConfig.concurrent(6, 2), (Integer x) -> {
                 int now = active.incrementAndGet();
