@@ -47,13 +47,17 @@ public final class Endpoint<M, R> implements AutoCloseable {
     }
 
     public void publish(Object event) {
+        if (closed.get()) throw new IllegalStateException("Endpoint is closed: " + name);
         for (var subscriber : subscribers) {
             enqueue(new Envelope(event, null, subscriber));
         }
     }
 
     public void addSubscriber(Consumer<Object> subscriber) {
-        subscribers.add(Objects.requireNonNull(subscriber, "subscriber"));
+        synchronized (admissionLock) {
+            if (closed.get()) throw new IllegalStateException("Endpoint is closed: " + name);
+            subscribers.add(Objects.requireNonNull(subscriber, "subscriber"));
+        }
     }
 
     private void enqueue(Envelope envelope) {
