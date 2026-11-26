@@ -202,7 +202,34 @@ class AccumulatedFlowTest {
         }
     }
 
+    @Test
+    void workflowSessionOwnerSerializesTransitions() throws Exception {
+        try (var bus = new LoomBus()) {
+            var session = new WorkflowSession();
+            bus.register("session", EndpointConfig.stateful(8), (WorkflowCommand command) -> {
+                if (command.next() == Phase.VALIDATED && session.phase == Phase.NEW) {
+                    session.phase = Phase.VALIDATED;
+                } else if (command.next() == Phase.COMPLETE && session.phase == Phase.VALIDATED) {
+                    session.phase = Phase.COMPLETE;
+                } else {
+                    throw new IllegalStateException("invalid workflow transition");
+                }
+                return session.phase;
+            });
+            assertEquals(Phase.VALIDATED,
+                    bus.<WorkflowCommand, Phase>request("session", new WorkflowCommand(Phase.VALIDATED))
+                            .get(1, TimeUnit.SECONDS));
+            assertEquals(Phase.COMPLETE,
+                    bus.<WorkflowCommand, Phase>request("session", new WorkflowCommand(Phase.COMPLETE))
+                            .get(1, TimeUnit.SECONDS));
+            assertEquals(Phase.COMPLETE, session.phase);
+        }
+    }
+
     private record Command(int delta) {}
     private static final class Account { int balance; }
     private static final class MutableState { int value; final StringBuilder trace = new StringBuilder(); }
+    private enum Phase { NEW, VALIDATED, COMPLETE }
+    private record WorkflowCommand(Phase next) {}
+    private static final class WorkflowSession { Phase phase = Phase.NEW; }
 }
