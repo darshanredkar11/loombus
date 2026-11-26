@@ -1,7 +1,7 @@
 # Gate 3 — Implementation Audit
 
 **Branch:** `benchmark/java21-baseline`  
-**Status:** Gate 3 complete; correctness fixes applied. Latest code commit `98f6fb3` passed both workflows. The latest documentation-only commit still requires final CI confirmation. Not a production-readiness sign-off.
+**Status:** Gate 3 complete; correctness fixes applied. Latest code commit `98f6fb3` passed both workflows. CI on the current branch remains the final accumulated-readiness authority. Not a production-readiness sign-off.
 
 ## Audit baseline
 
