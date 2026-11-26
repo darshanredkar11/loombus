@@ -1,6 +1,6 @@
 # Gate 4 — Contract Decisions
 
-**Status:** Contract decisions for the 0.1 experimental API are finalized and the automated test matrix passed at commit `98f6fb3`: [run 45874246417](https://github.com/darshanredkar11/loombus/actions/runs/45874246417). The latest documentation-only commit is still being revalidated.
+**Status:** Contract decisions for the 0.1 experimental API are finalized and the automated test matrix passed at commit `98f6fb3`: [run 45874246417](https://github.com/darshanredkar11/loombus/actions/runs/45874246417). Final readiness is based on CI for the current branch.
 
 This gate closes the observable semantics needed by the currently documented flows. It does not add new public capabilities.
 
