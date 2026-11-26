@@ -17,7 +17,7 @@ Gate 5 tests the documented supported flow families together with primitive/regr
 | Overload protection | REJECT, TIMEOUT, WAIT release/recovery, close-aware waiting producer, capacity after handler failure | `boundedRejectBackpressure`, `timeoutBackpressureEventuallyRejects`, `waitBackpressureAdmitsProducerWhenCapacityIsReleased`, `closeRejectsNewAdmissionAndWakesBlockedWaiters`, `capacityIsRecoveredAfterHandlerFailure` |
 | Fan-out/fan-in | Children execute concurrently; aggregate is correlated | `fanOutFanInCorrelatesIndependentChildResults` |
 | Endpoint isolation | Saturated endpoint A does not consume endpoint B mailbox budget; peak concurrency bound tested | `endpointAdmissionBudgetsRemainIndependent`, `endpointConcurrencyBudgetIsEnforced` |
-| LoomBusOps helper | Repeated/concurrent map calls use a reusable endpoint without mixing mapper functions; shared-bus close and reentrancy guard are verified | `reusableEndpointSupportsRepeatedAndConcurrentMapCallsWithoutMapperMixing`, `closingOpsOnSharedBusClosesOnlyItsEndpoint`, `sameHelperRejectsReentrantLoomBusMappingInsteadOfDeadlocking` |
+| LoomBusOps helper | Repeated/concurrent map calls use a reusable endpoint without mixing mapper functions; shared-bus close and reentrancy guard are verified | `reusableEndpointSupportsRepeatedAndConcurrentMapCallsWithoutMapperMixing`, `mapperFailureDoesNotPoisonReusableEndpoint`, `closingOpsOnSharedBusClosesOnlyItsEndpoint`, `sameHelperRejectsReentrantLoomBusMappingInsteadOfDeadlocking` |
 
 ## Lifecycle and cross-cutting regression coverage
 
@@ -28,7 +28,7 @@ Gate 5 tests the documented supported flow families together with primitive/regr
 - Cleanup after partial worker startup rejection.
 - Caller-only cancellation semantics.
 - Reference identity and safe publication.
-- Capacity recovery on terminal handler failure.
+- Capacity recovery on terminal handler failure and helper mapper failure.
 
 The full Maven test suite runs cumulatively on each commit; these tests are not run as isolated gate subsets.
 
