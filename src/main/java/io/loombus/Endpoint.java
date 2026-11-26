@@ -133,8 +133,8 @@ public final class Endpoint<M, R> implements AutoCloseable {
                 }
             } catch (InterruptedException e) {
                 if (closed.get()) return;
-                Thread.currentThread().interrupt();
-                return;
+                // The interruption has been consumed by the blocking wait. Keep
+                // the endpoint worker alive rather than permanently reducing capacity.
             }
         }
     }
