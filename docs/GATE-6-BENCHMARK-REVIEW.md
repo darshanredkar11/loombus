@@ -1,6 +1,6 @@
 # Gate 6 — Benchmark Review
 
-**Status:** Benchmark harness methodology upgraded; repeated-run CI results pending final verification.
+**Status:** Repeated-round benchmark harness and smoke results recorded; final readiness still requires CI on the latest accumulated commit.
 
 ## Thesis and scope
 
@@ -25,6 +25,19 @@ The previous benchmark had one measured run per mode, fixed mode order, and only
 | Downstream semaphore, 500 × 10 ms, 16 slots | 1,262 ms | 325 ms | Illustrates limited-resource fan-out |
 
 These are **single-round observations**, not reproducible performance claims. The benchmark is synthetic (sleep-based service time) and GitHub runner timing is noisy.
+
+## Repeated-round smoke result
+
+**Run:** [45873155850](https://github.com/darshanredkar11/loombus/actions/runs/45873155850)  
+**Runtime:** Temurin 21.0.13, 4 reported processors. One warmup + three measured rounds. This is an Actions smoke run; not an independent performance study.
+
+| Workload | Stream median | LoomBus median | Stream throughput | LoomBus throughput | Stream p50/p95/p99 ms | LoomBus p50/p95/p99 ms |
+|---|---:|---:|---:|---:|---|---|
+| CPU control, 100k | 18.098 ms | 51.313 ms | 5.53M/s | 1.95M/s | 8.978 / 19.404 / 20.463 | 20.344 / 40.794 / 41.775 |
+| Blocking fan-out, 1,000 × 15 ms | 3,773.024 ms | 484.938 ms | 265.0/s | 2,062.1/s | 1,886.312 / 3,591.918 / 3,742.826 | 242.724 / 454.587 / 469.742 |
+| Downstream pool, 500 × 10 ms, 16 slots | 1,260.938 ms | 324.843 ms | 396.5/s | 1,539.2/s | 635.539 / 1,200.440 / 1,250.878 | 162.563 / 304.558 / 314.703 |
+
+The repeated-run results preserve the intended interpretation: parallel streams lead the CPU control; LoomBus is materially faster in these synthetic blocking and constrained-pool scenarios. The measured p95/p99 are batch-submission-to-completion latencies, not just handler service time. These observations motivate further target-workload investigation but are not proof of universal superiority.
 
 ## Revised benchmark protocol
 
