@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.AbstractExecutorService;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.Executors;
@@ -379,6 +380,18 @@ class LoomBusTest {
     }
 
     @Test
+    void partialWorkerStartupFailureDoesNotLeakEarlierWorker() throws Exception {
+        var rejectingExecutor = new RejectSecondWorkerExecutor();
+        try (var bus = new LoomBus(rejectingExecutor)) {
+            assertThrows(RejectedExecutionException.class,
+                    () -> bus.register("partial-workers", EndpointConfig.concurrent(4, 2),
+                            (Integer value) -> value));
+            assertTrue(rejectingExecutor.firstWorkerExited.await(1, TimeUnit.SECONDS),
+                    "worker started before executor rejection must exit");
+        }
+    }
+
+    @Test
     void busCloseIsIdempotentAndOwnsInjectedExecutor() throws Exception {
         var executor = Executors.newVirtualThreadPerTaskExecutor();
         var bus = new LoomBus(executor);
@@ -445,6 +458,38 @@ class LoomBusTest {
             assertTrue(abandoned.cancel(false));
             gate.countDown();
             assertEquals(2, bus.request("cancel", 2).get(1, TimeUnit.SECONDS));
+        }
+    }
+
+    private static final class RejectSecondWorkerExecutor extends AbstractExecutorService {
+        private final AtomicInteger submissions = new AtomicInteger();
+        private final CountDownLatch firstWorkerExited = new CountDownLatch(1);
+        private volatile Thread worker;
+        private volatile boolean shutdown;
+
+        @Override
+        public void execute(Runnable command) {
+            if (submissions.incrementAndGet() > 1) {
+                throw new RejectedExecutionException("reject second worker");
+            }
+            worker = new Thread(() -> {
+                try {
+                    command.run();
+                } finally {
+                    firstWorkerExited.countDown();
+                }
+            }, "loombus-test-worker");
+            worker.setDaemon(true);
+            worker.start();
+        }
+
+        @Override public void shutdown() { shutdown = true; }
+        @Override public java.util.List<Runnable> shutdownNow() { shutdown = true; return java.util.List.of(); }
+        @Override public boolean isShutdown() { return shutdown; }
+        @Override public boolean isTerminated() { return shutdown && (worker == null || !worker.isAlive()); }
+        @Override public boolean awaitTermination(long timeout, TimeUnit unit) throws InterruptedException {
+            if (worker != null) worker.join(unit.toMillis(timeout));
+            return isTerminated();
         }
     }
 
