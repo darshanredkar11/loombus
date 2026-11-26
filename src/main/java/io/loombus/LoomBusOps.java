@@ -47,6 +47,7 @@ public final class LoomBusOps implements AutoCloseable {
     private final LoomBus bus;
     private final Defaults defaults;
     private final boolean ownsBus;
+    private final ThreadLocal<Boolean> executingMapper = ThreadLocal.withInitial(() -> false);
     private final Endpoint<WorkItem, Object> endpoint;
 
     public LoomBusOps() {
@@ -111,7 +112,17 @@ public final class LoomBusOps implements AutoCloseable {
     private <T, R> List<R> mapViaEndpoint(
             List<T> items,
             Function<? super T, ? extends R> mapper) {
-        Function<Object, Object> erasedMapper = value -> mapper.apply((T) value);
+        if (executingMapper.get()) {
+            throw new IllegalStateException("Nested LoomBus mapAll on the same LoomBusOps instance is not supported");
+        }
+        Function<Object, Object> erasedMapper = value -> {
+            executingMapper.set(true);
+            try {
+                return mapper.apply((T) value);
+            } finally {
+                executingMapper.remove();
+            }
+        };
         List<CompletableFuture<Object>> futures = new ArrayList<>(items.size());
         Throwable admissionFailure = null;
 
