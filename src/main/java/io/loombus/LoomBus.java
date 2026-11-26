@@ -13,6 +13,8 @@ import java.util.function.Function;
 public final class LoomBus implements AutoCloseable {
     private final ExecutorService executor;
     private final ConcurrentMap<String, Endpoint<?, ?>> endpoints = new ConcurrentHashMap<>();
+    private final Object lifecycleLock = new Object();
+    private boolean closed;
 
     public LoomBus() {
         this(Executors.newVirtualThreadPerTaskExecutor());
@@ -30,12 +32,17 @@ public final class LoomBus implements AutoCloseable {
         Objects.requireNonNull(config, "config");
         Objects.requireNonNull(handler, "handler");
 
-        var endpoint = new Endpoint<M, R>(name, config, executor, handler);
-        if (endpoints.putIfAbsent(name, endpoint) != null) {
-            endpoint.close();
-            throw new IllegalArgumentException("Endpoint already exists: " + name);
+        synchronized (lifecycleLock) {
+            if (closed) {
+                throw new IllegalStateException("LoomBus is closed");
+            }
+            if (endpoints.containsKey(name)) {
+                throw new IllegalArgumentException("Endpoint already exists: " + name);
+            }
+            var endpoint = new Endpoint<M, R>(name, config, executor, handler);
+            endpoints.put(name, endpoint);
+            return endpoint;
         }
-        return endpoint;
     }
 
     @SuppressWarnings("unchecked")
@@ -67,7 +74,14 @@ public final class LoomBus implements AutoCloseable {
 
     @Override
     public void close() {
-        endpoints.values().forEach(Endpoint::close);
+        synchronized (lifecycleLock) {
+            if (closed) {
+                return;
+            }
+            closed = true;
+            endpoints.values().forEach(Endpoint::close);
+        }
+        // Do not hold the lifecycle lock while waiting for worker termination.
         executor.close();
     }
 }
