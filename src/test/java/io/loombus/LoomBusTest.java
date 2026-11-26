@@ -125,6 +125,28 @@ class LoomBusTest {
     }
 
     @Test
+    void subscriberFailureDoesNotKillEndpointWorkerOrLeakCapacity() throws Exception {
+        try (var bus = new LoomBus()) {
+            var observed = new AtomicInteger();
+            var done = new CountDownLatch(1);
+            bus.register("subscriber-failure", EndpointConfig.stateful(1), (Object ignored) -> null);
+            bus.subscribe("subscriber-failure", event -> {
+                if ("bad".equals(event)) throw new IllegalStateException("subscriber boom");
+            });
+            bus.subscribe("subscriber-failure", event -> {
+                if ("good".equals(event)) {
+                    observed.incrementAndGet();
+                    done.countDown();
+                }
+            });
+            bus.publish("subscriber-failure", "bad");
+            bus.publish("subscriber-failure", "good");
+            assertTrue(done.await(2, TimeUnit.SECONDS));
+            assertEquals(1, observed.get());
+        }
+    }
+
+    @Test
     void messageReferenceIsNotCopied() throws Exception {
         try (var bus = new LoomBus()) {
             var message = new Object();
