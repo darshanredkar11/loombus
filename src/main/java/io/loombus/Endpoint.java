@@ -32,7 +32,14 @@ public final class Endpoint<M, R> implements AutoCloseable {
         this.capacity = new Semaphore(config.capacity());
         this.work = new Semaphore(0);
         for (int i = 0; i < config.concurrency(); i++) {
-            executor.submit(this::workerLoop);
+            try {
+                executor.submit(this::workerLoop);
+            } catch (RuntimeException | Error submissionFailure) {
+                // A partially started endpoint must not leave its earlier workers
+                // running forever when the shared executor rejects later workers.
+                closed.set(true);
+                throw submissionFailure;
+            }
         }
     }
 
