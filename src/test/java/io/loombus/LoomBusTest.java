@@ -131,7 +131,6 @@ class LoomBusTest {
             var firstDone = new CountDownLatch(1);
             var release = new CountDownLatch(1);
             var secondDelivered = new AtomicInteger();
-            var nextReceived = new CountDownLatch(1);
             bus.register("partial-publish", EndpointConfig.stateful(1)
                     .withBackpressure(Backpressure.REJECT), (Object ignored) -> null);
             bus.subscribe("partial-publish", event -> {
@@ -147,7 +146,6 @@ class LoomBusTest {
             });
             bus.subscribe("partial-publish", event -> {
                 secondDelivered.incrementAndGet();
-                if ("next".equals(event)) nextReceived.countDown();
             });
 
             assertThrows(RejectedExecutionException.class, () -> bus.publish("partial-publish", "event"));
@@ -155,7 +153,7 @@ class LoomBusTest {
             release.countDown();
             assertTrue(firstDone.await(1, TimeUnit.SECONDS));
             assertEquals(0, secondDelivered.get());
-            assertEquals(null, bus.request("partial-publish", "capacity-check").get(1, TimeUnit.SECONDS));
+            assertNull(bus.request("partial-publish", "capacity-check").get(1, TimeUnit.SECONDS));
         }
     }
 
