@@ -63,8 +63,13 @@ public final class Endpoint<M, R> implements AutoCloseable {
         try {
             acquired = switch (config.backpressure()) {
                 case WAIT -> {
-                    capacity.acquire();
-                    yield true;
+                    // WAIT remains bounded by endpoint lifecycle: periodically recheck
+                    // close while capacity is unavailable instead of parking forever.
+                    boolean permit = false;
+                    while (!closed.get() && !(permit = capacity.tryAcquire(50, TimeUnit.MILLISECONDS))) {
+                        // Only blocked producers poll for the close signal; workers are event-driven.
+                    }
+                    yield permit;
                 }
                 case REJECT -> capacity.tryAcquire();
                 case TIMEOUT -> capacity.tryAcquire(
@@ -77,6 +82,9 @@ public final class Endpoint<M, R> implements AutoCloseable {
         }
 
         if (!acquired) {
+            if (closed.get()) {
+                throw new IllegalStateException("Endpoint is closed: " + name);
+            }
             throw new RejectedExecutionException("Endpoint mailbox is full: " + name);
         }
         synchronized (admissionLock) {
