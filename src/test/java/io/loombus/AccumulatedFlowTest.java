@@ -33,8 +33,8 @@ class AccumulatedFlowTest {
             bus.register("risk", EndpointConfig.concurrent(8, 2), (Integer x) -> x * 2);
             bus.register("price", EndpointConfig.concurrent(8, 2), (Integer x) -> x + 100);
             var input = 25;
-            var risk = bus.request("risk", input);
-            var price = bus.request("price", input);
+            var risk = bus.<Integer, Integer>request("risk", input);
+            var price = bus.<Integer, Integer>request("price", input);
             var combined = CompletableFuture.allOf(risk, price)
                     .thenApply(ignored -> risk.join() + price.join());
             assertEquals(175, combined.get(1, TimeUnit.SECONDS));
