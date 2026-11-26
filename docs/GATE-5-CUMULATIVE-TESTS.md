@@ -1,6 +1,6 @@
 # Gate 5 — Cumulative Flow Tests
 
-**Status:** Flow-level coverage is in place; CI for the latest test additions is pending. Benchmark gate remains separate.
+**Status:** Accepted for the current supported flows. The cumulative test workflow passed at commit `98f6fb3`: [run 45874246417](https://github.com/darshanredkar11/loombus/actions/runs/45874246417). The latest documentation-only commit is still being revalidated.
 
 Gate 5 tests the documented supported flow families together with primitive/regression tests. It does not add runtime features or change the ownership-first thesis.
 
@@ -43,4 +43,4 @@ The full Maven test suite runs cumulatively on each commit; these tests are not 
 
 ## Gate 5 exit
 
-Gate 5 is accepted when the entire test suite passes on the latest code, no required supported flow has a correctness-critical gap, and the latest CI test workflow is green. Gate 6 remains a benchmark review and cannot substitute for correctness evidence.
+Gate 5 acceptance criteria are met for the current supported flows: the cumulative Maven test suite passed at `98f6fb3`, with no required-flow correctness gap found in the audit. The latest documentation-only commit still requires final CI confirmation. Gate 6 remains a benchmark review and cannot substitute for correctness evidence.
