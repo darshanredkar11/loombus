@@ -271,7 +271,7 @@ Gate 1 is ready for sign-off when:
 - **Gate 5:** accumulated correctness coverage is accepted in [GATE-5-CUMULATIVE-TESTS.md](GATE-5-CUMULATIVE-TESTS.md); the cumulative test workflow passed at `98f6fb3`.
 - **Gate 6:** workload-specific benchmark methodology and smoke results are recorded in [GATE-6-BENCHMARK-REVIEW.md](GATE-6-BENCHMARK-REVIEW.md); repeated benchmark workflow passed at `98f6fb3`.
 
-The latest documentation-only commit still requires final CI confirmation.
+Final readiness is based on CI for the current branch, not the status text in this document.
 
 The foundation remains authoritative for the thesis. Later gates refine implementation and test evidence; they do not broaden the goal or imply deferred features exist.
 
