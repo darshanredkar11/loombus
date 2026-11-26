@@ -234,6 +234,42 @@ class LoomBusTest {
     }
 
     @Test
+    void closeRejectsNewAdmissionAndBlockedWaitersAfterDrain() throws Exception {
+        try (var bus = new LoomBus()) {
+            var gate = new CountDownLatch(1);
+            var started = new CountDownLatch(1);
+            var endpoint = bus.register("closing", EndpointConfig.stateful(1), (Integer value) -> {
+                started.countDown();
+                try {
+                    gate.await();
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new java.util.concurrent.CancellationException();
+                }
+                return value;
+            });
+
+            var first = bus.request("closing", 1);
+            assertTrue(started.await(1, TimeUnit.SECONDS));
+
+            var producer = java.util.concurrent.CompletableFuture.supplyAsync(() -> {
+                try {
+                    bus.request("closing", 2);
+                    return "admitted";
+                } catch (IllegalStateException expected) {
+                    return "closed";
+                }
+            });
+
+            endpoint.close();
+            gate.countDown();
+            assertEquals(1, first.get(1, TimeUnit.SECONDS));
+            assertEquals("closed", producer.get(2, TimeUnit.SECONDS));
+            assertThrows(IllegalStateException.class, () -> bus.request("closing", 3));
+        }
+    }
+
+    @Test
     void cancelledCallerFutureDoesNotLoseCapacity() throws Exception {
         try (var bus = new LoomBus()) {
             var started = new CountDownLatch(1);
