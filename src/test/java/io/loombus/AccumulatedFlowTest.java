@@ -216,6 +216,10 @@ class AccumulatedFlowTest {
                 }
                 return session.phase;
             });
+            var invalid = bus.<WorkflowCommand, Phase>request("session", new WorkflowCommand(Phase.COMPLETE));
+            assertThrows(java.util.concurrent.ExecutionException.class,
+                    () -> invalid.get(1, TimeUnit.SECONDS));
+            assertEquals(Phase.NEW, session.phase);
             assertEquals(Phase.VALIDATED,
                     bus.<WorkflowCommand, Phase>request("session", new WorkflowCommand(Phase.VALIDATED))
                             .get(1, TimeUnit.SECONDS));
