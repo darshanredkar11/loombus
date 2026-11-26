@@ -125,6 +125,33 @@ class LoomBusTest {
     }
 
     @Test
+    void publishCanPartiallyAdmitSubscribersWhenCapacityRejects() throws Exception {
+        try (var bus = new LoomBus()) {
+            var entered = new CountDownLatch(1);
+            var release = new CountDownLatch(1);
+            var secondDelivered = new AtomicInteger();
+            bus.register("partial-publish", EndpointConfig.stateful(1)
+                    .withBackpressure(Backpressure.REJECT), (Object ignored) -> null);
+            bus.subscribe("partial-publish", event -> {
+                entered.countDown();
+                try {
+                    release.await();
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new java.util.concurrent.CancellationException();
+                }
+            });
+            bus.subscribe("partial-publish", event -> secondDelivered.incrementAndGet());
+
+            assertThrows(RejectedExecutionException.class, () -> bus.publish("partial-publish", "event"));
+            assertTrue(entered.await(1, TimeUnit.SECONDS));
+            release.countDown();
+            awaitUntil(() -> bus.request("partial-publish", "capacity-check"), 500);
+            assertEquals(0, secondDelivered.get());
+        }
+    }
+
+    @Test
     void subscriberFailureDoesNotKillEndpointWorkerOrLeakCapacity() throws Exception {
         try (var bus = new LoomBus()) {
             var observed = new AtomicInteger();
