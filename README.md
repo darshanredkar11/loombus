@@ -416,16 +416,14 @@ Detailed design and use-case documentation lives under [`docs/`](docs/).
 
  The API is intentionally small while we validate semantics, failure behavior, memory visibility, overload behavior, and performance.
 
-Current validation includes primitive-level tests plus accumulated-flow coverage for stateful aggregates, fan-out/fan-in, blocking stage composition, endpoint concurrency budgets, close/admission behavior, partial publish, cancellation, failure recovery, reference identity, and safe publication.
+Current validation includes primitive-level tests plus accumulated-flow coverage for stateful aggregates and workflow sessions, fan-out/fan-in, blocking stage composition, mutable-state pipeline transfer, endpoint concurrency/isolation budgets, REJECT/TIMEOUT/WAIT overload, close/admission behavior, partial publish, cancellation, failure recovery, worker interruption/startup recovery, reference identity, and safe publication.
 
-Hardening and remaining review work:
+Remaining review work:
 
-- worker interruption and replacement behavior
 - lifecycle termination observability (endpoint-level await/drain API is not exposed)
 - subscriber error reporting API (currently uncaught-handler based)
-- injected executor ownership (currently transferred to LoomBus and closed by bus.close())
 - deeper stress/property testing for races and capacity accounting
-- benchmark methodology and target workload expansion
+- independent, controlled benchmark runs beyond GitHub Actions
 - API refinement only where the contracts and flows demonstrate a need
 
 ## Documentation
@@ -434,6 +432,8 @@ Hardening and remaining review work:
 - [Functional flow specifications](docs/FLOW-SPECS.md) — Gate 2 flow review
 - [Gate 3 implementation audit](docs/GATE-3-AUDIT.md) — source audit and findings
 - [Gate 4 contract decisions](docs/GATE-4-CONTRACTS.md) — resolved 0.1 semantics and test matrix
+- [Gate 5 cumulative flow tests](docs/GATE-5-CUMULATIVE-TESTS.md) — accumulated correctness coverage
+- [Gate 6 benchmark review](docs/GATE-6-BENCHMARK-REVIEW.md) — workload-specific benchmark protocol and limitations
 - [Feature and semantic guide](docs/FEATURES.md)
 - [Use cases and patterns](docs/USE-CASES.md)
 
