@@ -1,6 +1,6 @@
 # Gate 5 — Cumulative Flow Tests
 
-**Status:** Flow-level coverage is in place; latest CI runs validate the cumulative suite. Benchmark gate remains separate.
+**Status:** Flow-level coverage is in place; CI for the latest test additions is pending. Benchmark gate remains separate.
 
 Gate 5 tests the documented supported flow families together with primitive/regression tests. It does not add runtime features or change the ownership-first thesis.
 
@@ -17,6 +17,7 @@ Gate 5 tests the documented supported flow families together with primitive/regr
 | Overload protection | REJECT, TIMEOUT, WAIT release/recovery, close-aware waiting producer, capacity after handler failure | `boundedRejectBackpressure`, `timeoutBackpressureEventuallyRejects`, `waitBackpressureAdmitsProducerWhenCapacityIsReleased`, `closeRejectsNewAdmissionAndWakesBlockedWaiters`, `capacityIsRecoveredAfterHandlerFailure` |
 | Fan-out/fan-in | Children execute concurrently; aggregate is correlated | `fanOutFanInCorrelatesIndependentChildResults` |
 | Endpoint isolation | Saturated endpoint A does not consume endpoint B mailbox budget; peak concurrency bound tested | `endpointAdmissionBudgetsRemainIndependent`, `endpointConcurrencyBudgetIsEnforced` |
+| LoomBusOps helper | Repeated/concurrent map calls use a reusable endpoint without mixing mapper functions; shared-bus close and reentrancy guard are verified | `reusableEndpointSupportsRepeatedAndConcurrentMapCallsWithoutMapperMixing`, `closingOpsOnSharedBusClosesOnlyItsEndpoint`, `sameHelperRejectsReentrantLoomBusMappingInsteadOfDeadlocking` |
 
 ## Lifecycle and cross-cutting regression coverage
 
