@@ -125,35 +125,63 @@ class LoomBusTest {
     }
 
     @Test
-    void publishCanPartiallyAdmitSubscribersWhenCapacityRejects() throws Exception {
+    void publishCanPartiallyAdmitSubscribersAndRecoverCapacity() throws Exception {
         try (var bus = new LoomBus()) {
-            var entered = new CountDownLatch(1);
-            var firstDone = new CountDownLatch(1);
-            var release = new CountDownLatch(1);
+            var blockerStarted = new CountDownLatch(1);
+            var releaseBlocker = new CountDownLatch(1);
+            var firstSubscriberEntered = new CountDownLatch(1);
+            var releaseFirstSubscriber = new CountDownLatch(1);
+            var firstSubscriberDone = new CountDownLatch(1);
+            var recoveredSecondSubscriber = new CountDownLatch(1);
             var secondDelivered = new AtomicInteger();
-            bus.register("partial-publish", EndpointConfig.stateful(1)
-                    .withBackpressure(Backpressure.REJECT), (Object ignored) -> null);
+
+            bus.register("partial-publish", EndpointConfig.concurrent(2, 1)
+                    .withBackpressure(Backpressure.REJECT), (Object event) -> {
+                if ("hold".equals(event)) {
+                    blockerStarted.countDown();
+                    try {
+                        releaseBlocker.await();
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        throw new java.util.concurrent.CancellationException();
+                    }
+                }
+                return null;
+            });
             bus.subscribe("partial-publish", event -> {
-                entered.countDown();
-                try {
-                    release.await();
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    throw new java.util.concurrent.CancellationException();
-                } finally {
-                    firstDone.countDown();
+                if ("partial".equals(event)) {
+                    firstSubscriberEntered.countDown();
+                    try {
+                        releaseFirstSubscriber.await();
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        throw new java.util.concurrent.CancellationException();
+                    } finally {
+                        firstSubscriberDone.countDown();
+                    }
                 }
             });
             bus.subscribe("partial-publish", event -> {
-                secondDelivered.incrementAndGet();
+                if ("recovered".equals(event)) {
+                    secondDelivered.incrementAndGet();
+                    recoveredSecondSubscriber.countDown();
+                }
             });
 
-            assertThrows(RejectedExecutionException.class, () -> bus.publish("partial-publish", "event"));
-            assertTrue(entered.await(1, TimeUnit.SECONDS));
-            release.countDown();
-            assertTrue(firstDone.await(1, TimeUnit.SECONDS));
+            var blocker = bus.request("partial-publish", "hold");
+            assertTrue(blockerStarted.await(1, TimeUnit.SECONDS));
+            assertThrows(RejectedExecutionException.class, () -> bus.publish("partial-publish", "partial"));
+
+            releaseBlocker.countDown();
+            assertNull(blocker.get(1, TimeUnit.SECONDS));
+            assertTrue(firstSubscriberEntered.await(1, TimeUnit.SECONDS));
+            releaseFirstSubscriber.countDown();
+            assertTrue(firstSubscriberDone.await(1, TimeUnit.SECONDS));
             assertEquals(0, secondDelivered.get());
-            assertNull(bus.request("partial-publish", "capacity-check").get(1, TimeUnit.SECONDS));
+
+            bus.publish("partial-publish", "recovered");
+            assertTrue(recoveredSecondSubscriber.await(1, TimeUnit.SECONDS));
+            assertEquals(1, secondDelivered.get());
         }
     }
 
@@ -161,20 +189,23 @@ class LoomBusTest {
     void subscriberFailureDoesNotKillEndpointWorkerOrLeakCapacity() throws Exception {
         try (var bus = new LoomBus()) {
             var observed = new AtomicInteger();
-            var done = new CountDownLatch(1);
-            bus.register("subscriber-failure", EndpointConfig.stateful(1), (Object ignored) -> null);
+            var badDeliveryDone = new CountDownLatch(1);
+            var goodDeliveryDone = new CountDownLatch(1);
+            bus.register("subscriber-failure", EndpointConfig.concurrent(2, 1), (Object ignored) -> null);
             bus.subscribe("subscriber-failure", event -> {
                 if ("bad".equals(event)) throw new IllegalStateException("subscriber boom");
             });
             bus.subscribe("subscriber-failure", event -> {
+                if ("bad".equals(event)) badDeliveryDone.countDown();
                 if ("good".equals(event)) {
                     observed.incrementAndGet();
-                    done.countDown();
+                    goodDeliveryDone.countDown();
                 }
             });
             bus.publish("subscriber-failure", "bad");
+            assertTrue(badDeliveryDone.await(1, TimeUnit.SECONDS));
             bus.publish("subscriber-failure", "good");
-            assertTrue(done.await(2, TimeUnit.SECONDS));
+            assertTrue(goodDeliveryDone.await(2, TimeUnit.SECONDS));
             assertEquals(1, observed.get());
         }
     }
