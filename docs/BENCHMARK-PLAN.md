@@ -47,14 +47,14 @@ Every benchmark should capture total elapsed time and throughput; completed, fai
 
 The current implementation creates a fixed set of long-lived virtual-thread workers per endpoint and uses a ConcurrentLinkedQueue plus Semaphore capacity/work signals. First investigate worker scheduling, queue contention, admission overhead, and endpoint creation/teardown before redesigning the primitive. Do not optimize based on the CPU control result.
 
-## Gate sequence
+## Benchmark-specific sequence (sub-gates, distinct from repository Gates 0–6)
 
-- **Gate 0 — benchmark discipline:** define workload categories, metrics, and repeatability.
-- **Gate 1 — correctness/pressure tests:** admission accounting, producer blocking/rejection, cancellation and failure behavior under pressure, queue drain on close.
-- **Gate 2 — diagnostics baseline:** repeatable workload rounds, latency distributions, queue-pressure and endpoint lifecycle scenarios.
-- **Gate 3 — tuning:** one measured bottleneck at a time.
-- **Gate 4 — stress and regression:** larger producer counts, varied capacity/concurrency, sustained workload, repeated CI runs.
-- **Gate 5 — publish:** report supported workload envelope, known limits, and reproducible results.
+- **B0 — benchmark discipline:** define workload categories, metrics, and repeatability.
+- **B1 — correctness/pressure tests:** admission accounting, producer blocking/rejection, cancellation and failure behavior under pressure, queue drain on close.
+- **B2 — diagnostics baseline:** repeatable workload rounds, latency distributions, queue-pressure and endpoint lifecycle scenarios.
+- **B3 — tuning:** one measured bottleneck at a time.
+- **B4 — stress and regression:** larger producer counts, varied capacity/concurrency, sustained workload, repeated CI runs.
+- **B5 — publish:** report supported workload envelope, known limits, and reproducible results.
 
 ## Interpretation
 
