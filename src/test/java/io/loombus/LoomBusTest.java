@@ -212,23 +212,24 @@ class LoomBusTest {
     }
 
     @Test
-    void closeDrainsAdmittedWork() throws Exception {
-        var bus = new LoomBus();
-        var gate = new CountDownLatch(1);
-        bus.register("drain", EndpointConfig.concurrent(8, 1), (Integer value) -> {
-            try {
-                gate.await();
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                throw new java.util.concurrent.CancellationException();
+    void endpointCloseDrainsAdmittedWork() throws Exception {
+        try (var bus = new LoomBus()) {
+            var gate = new CountDownLatch(1);
+            var endpoint = bus.register("drain", EndpointConfig.concurrent(8, 1), (Integer value) -> {
+                try {
+                    gate.await();
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new java.util.concurrent.CancellationException();
+                }
+                return value;
+            });
+            var futures = IntStream.range(0, 8).mapToObj(i -> bus.request("drain", i)).toList();
+            endpoint.close();
+            gate.countDown();
+            for (int i = 0; i < futures.size(); i++) {
+                assertEquals(i, futures.get(i).get(2, TimeUnit.SECONDS));
             }
-            return value;
-        });
-        var futures = IntStream.range(0, 8).mapToObj(i -> bus.request("drain", i)).toList();
-        bus.close();
-        gate.countDown();
-        for (int i = 0; i < futures.size(); i++) {
-            assertEquals(i, futures.get(i).get(2, TimeUnit.SECONDS));
         }
     }
 
