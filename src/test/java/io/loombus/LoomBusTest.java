@@ -196,6 +196,65 @@ class LoomBusTest {
         }
     }
 
+
+    @Test
+    void capacityIsRecoveredAfterHandlerFailure() throws Exception {
+        try (var bus = new LoomBus()) {
+            var attempts = new AtomicInteger();
+            bus.register("recover", EndpointConfig.concurrent(1, 1), (Integer value) -> {
+                if (attempts.incrementAndGet() == 1) throw new IllegalStateException("first failure");
+                return value;
+            });
+            assertThrows(java.util.concurrent.ExecutionException.class,
+                    () -> bus.request("recover", 1).get(1, TimeUnit.SECONDS));
+            assertEquals(2, bus.request("recover", 2).get(1, TimeUnit.SECONDS));
+        }
+    }
+
+    @Test
+    void closeDrainsAdmittedWork() throws Exception {
+        var bus = new LoomBus();
+        var gate = new CountDownLatch(1);
+        bus.register("drain", EndpointConfig.concurrent(8, 1), (Integer value) -> {
+            try {
+                gate.await();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new java.util.concurrent.CancellationException();
+            }
+            return value;
+        });
+        var futures = IntStream.range(0, 8).mapToObj(i -> bus.request("drain", i)).toList();
+        bus.close();
+        gate.countDown();
+        for (int i = 0; i < futures.size(); i++) {
+            assertEquals(i, futures.get(i).get(2, TimeUnit.SECONDS));
+        }
+    }
+
+    @Test
+    void cancelledCallerFutureDoesNotLoseCapacity() throws Exception {
+        try (var bus = new LoomBus()) {
+            var started = new CountDownLatch(1);
+            var gate = new CountDownLatch(1);
+            bus.register("cancel", EndpointConfig.stateful(1), (Integer value) -> {
+                started.countDown();
+                try {
+                    gate.await();
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new java.util.concurrent.CancellationException();
+                }
+                return value;
+            });
+            var abandoned = bus.request("cancel", 1);
+            assertTrue(started.await(1, TimeUnit.SECONDS));
+            assertTrue(abandoned.cancel(false));
+            gate.countDown();
+            assertEquals(2, bus.request("cancel", 2).get(1, TimeUnit.SECONDS));
+        }
+    }
+
     private static void awaitUntil(ThrowingRunnable action, long timeoutMillis) throws Exception {
         long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMillis);
         while (true) {
