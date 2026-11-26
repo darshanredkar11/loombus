@@ -307,7 +307,11 @@ class LoomBusTest {
             var first = bus.request("closing", 1);
             assertTrue(started.await(1, TimeUnit.SECONDS));
 
+            var producerThread = new AtomicReference<Thread>();
+            var producerStarted = new CountDownLatch(1);
             var producer = java.util.concurrent.CompletableFuture.supplyAsync(() -> {
+                producerThread.set(Thread.currentThread());
+                producerStarted.countDown();
                 try {
                     bus.request("closing", 2);
                     return "admitted";
@@ -316,10 +320,16 @@ class LoomBusTest {
                 }
             });
 
+            assertTrue(producerStarted.await(1, TimeUnit.SECONDS));
+            awaitBlockedProducer(producerThread.get(), 1_000);
             endpoint.close();
-            gate.countDown();
+            try {
+                assertEquals("closed", producer.get(500, TimeUnit.MILLISECONDS),
+                        "close must wake a producer waiting for capacity");
+            } finally {
+                gate.countDown();
+            }
             assertEquals(1, first.get(1, TimeUnit.SECONDS));
-            assertEquals("closed", producer.get(2, TimeUnit.SECONDS));
             assertThrows(IllegalStateException.class, () -> bus.request("closing", 3));
         }
     }
@@ -344,6 +354,17 @@ class LoomBusTest {
             assertTrue(abandoned.cancel(false));
             gate.countDown();
             assertEquals(2, bus.request("cancel", 2).get(1, TimeUnit.SECONDS));
+        }
+    }
+
+    private static void awaitBlockedProducer(Thread thread, long timeoutMillis) throws Exception {
+        long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMillis);
+        while (thread.getState() != Thread.State.WAITING
+                && thread.getState() != Thread.State.TIMED_WAITING) {
+            if (System.nanoTime() >= deadline) {
+                fail("producer did not block on admission");
+            }
+            Thread.yield();
         }
     }
 
