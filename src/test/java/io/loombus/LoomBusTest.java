@@ -130,6 +130,7 @@ class LoomBusTest {
             var entered = new CountDownLatch(1);
             var release = new CountDownLatch(1);
             var secondDelivered = new AtomicInteger();
+            var nextReceived = new CountDownLatch(1);
             bus.register("partial-publish", EndpointConfig.stateful(1)
                     .withBackpressure(Backpressure.REJECT), (Object ignored) -> null);
             bus.subscribe("partial-publish", event -> {
@@ -141,17 +142,17 @@ class LoomBusTest {
                     throw new java.util.concurrent.CancellationException();
                 }
             });
-            bus.subscribe("partial-publish", event -> secondDelivered.incrementAndGet());
+            bus.subscribe("partial-publish", event -> {
+                secondDelivered.incrementAndGet();
+                if ("next".equals(event)) nextReceived.countDown();
+            });
 
             assertThrows(RejectedExecutionException.class, () -> bus.publish("partial-publish", "event"));
             assertTrue(entered.await(1, TimeUnit.SECONDS));
             release.countDown();
             assertEquals(0, secondDelivered.get());
             bus.publish("partial-publish", "next");
-            awaitUntil(() -> {
-                if (secondDelivered.get() == 1) return;
-                throw new AssertionError("second subscriber has not received the later event");
-            }, 500);
+            assertTrue(nextReceived.await(1, TimeUnit.SECONDS));
             assertEquals(1, secondDelivered.get());
         }
     }
