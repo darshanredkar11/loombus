@@ -263,11 +263,15 @@ Gate 1 is ready for sign-off when:
 
 ### Current gate status
 
-- **Gate 0:** documented as a reviewable baseline; not represented as user-approved until accepted.
-- **Gate 1:** primitive inventory and contract register are documented; not closed because several externally observable semantics remain open.
-- **Implementation:** no code changes are authorized by this document. Gate 2 flow specifications and subsequent implementation work must use this foundation.
+- **Gate 0:** goal and ownership-first thesis are documented as the canonical baseline.
+- **Gate 1:** primitive and contract inventory is documented. Remaining non-core items are explicitly deferred rather than silently promised.
+- **Gate 2:** supported flow families are specified in [FLOW-SPECS.md](FLOW-SPECS.md).
+- **Gate 3:** implementation audit and findings are recorded in [GATE-3-AUDIT.md](GATE-3-AUDIT.md).
+- **Gate 4:** observable 0.1 contracts are decided in [GATE-4-CONTRACTS.md](GATE-4-CONTRACTS.md).
+- **Gate 5:** accumulated correctness coverage is mapped in [GATE-5-CUMULATIVE-TESTS.md](GATE-5-CUMULATIVE-TESTS.md).
+- **Gate 6:** workload-specific benchmark methodology is reviewed in [GATE-6-BENCHMARK-REVIEW.md](GATE-6-BENCHMARK-REVIEW.md).
 
-- [Functional flow specifications — Gate 2](FLOW-SPECS.md)
+The foundation remains authoritative for the thesis. Later gates refine implementation and test evidence; they do not broaden the goal or imply deferred features exist.
 
 ## 10. Source documents
 
@@ -276,5 +280,9 @@ Gate 1 is ready for sign-off when:
 - [Use Cases and Patterns](USE-CASES.md)
 - [Production Scenarios](PRODUCTION-SCENARIOS.md)
 - [Benchmark Plan](BENCHMARK-PLAN.md)
+- [Gate 3 audit](GATE-3-AUDIT.md)
+- [Gate 4 contract decisions](GATE-4-CONTRACTS.md)
+- [Gate 5 cumulative tests](GATE-5-CUMULATIVE-TESTS.md)
+- [Gate 6 benchmark review](GATE-6-BENCHMARK-REVIEW.md)
 
 The README states the core thesis. This document makes its goals, primitive inventory, and contract status explicit. The feature and use-case documents remain the detailed descriptions of draft capabilities and scenarios; they must not override the contract decisions recorded here.
