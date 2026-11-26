@@ -1,0 +1,28 @@
+name: LoomBus Java 21 baseline benchmark
+on:
+  push:
+    branches:
+      - benchmark/java21-baseline
+jobs:
+  baseline:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - name: Verify runtime
+        run: java -version
+      - name: Run regression tests
+        run: mvn -q test
+      - name: Compile benchmark harness
+        run: mvn -q test-compile
+      - name: Run baseline benchmark
+        run: java -cp target/test-classes:target/classes io.loombus.benchmark.MultiplexingBenchmark | tee benchmark-results.txt
+      - name: Upload benchmark results
+        uses: actions/upload-artifact@v4
+        with:
+          name: loombus-java21-baseline
+          path: benchmark-results.txt
