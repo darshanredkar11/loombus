@@ -34,13 +34,13 @@ This gate closes the observable semantics needed by the currently documented flo
 | REJECT / TIMEOUT / WAIT | Admission outcomes match policy and capacity is recovered |
 | Handler failure | Exceptional completion and capacity release; worker remains usable |
 | Caller cancellation | Cancelled future does not prevent processing or leak capacity |
-| Endpoint close/drain | Previously admitted work drains; post-close admissions reject |
-| Close/admission race | No accepted work can be inserted after close linearization; losing producer releases permit |
-| Publish | Subscriber delivery and partial admission semantics are not falsely treated as atomic |
-| Subscriber exception | Worker survives handler/subscriber failure and capacity is released |
-| Safe publication | Message values are visible as expected through the mailbox/executor boundary || Bus close and registration race | Registration either completes before bus close and is then closed, or rejects after close; injected executor is closed by LoomBus. |
-| Worker interruption / partial startup | An idle worker recovers from interruption while endpoint is open; partial worker startup failure closes earlier workers. |
-| Bus close and registration race | Registration is either completed before bus close and then closed, or rejected after close. Executor ownership and idempotent close are verified. |
+| Endpoint close/drain | Previously admitted work drains; post-close request/publish/subscription admissions reject |
+| Close/admission race | No accepted work can be inserted after close linearization; a losing producer releases its permit; blocked WAIT producers recheck close and reject |
+| Publish | Subscriber delivery and partial admission are tested; publish is not treated as atomic |
+| Subscriber exception | Worker survives subscriber failure and capacity is released |
+| Safe publication | Message values are visible through mailbox/executor publication |
+| Bus close and registration race | Registration either completes before bus close and is then closed, or rejects after close; injected executor is closed by LoomBus |
+| Worker interruption / partial startup | Worker remains usable after idle interruption; earlier workers stop if partial worker startup fails |
 | Endpoint budgets | Independent mailbox budgets and configured concurrency are honored |
 
 ## Exit
