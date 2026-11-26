@@ -7,6 +7,7 @@ import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.IntStream;
@@ -375,6 +376,53 @@ class LoomBusTest {
             assertEquals(1, first.get(1, TimeUnit.SECONDS));
             assertThrows(IllegalStateException.class, () -> bus.request("closing", 3));
         }
+    }
+
+    @Test
+    void busCloseIsIdempotentAndOwnsInjectedExecutor() throws Exception {
+        var executor = Executors.newVirtualThreadPerTaskExecutor();
+        var bus = new LoomBus(executor);
+        bus.register("owned-executor", EndpointConfig.stateful(4), (Integer value) -> value);
+        bus.close();
+        assertTrue(executor.isShutdown());
+        assertThrows(IllegalStateException.class,
+                () -> bus.register("after-close", EndpointConfig.stateful(1), (Integer value) -> value));
+        bus.close();
+    }
+
+    @Test
+    void busCloseAndRegistrationRaceCannotLeaveLiveEndpoint() throws Exception {
+        var bus = new LoomBus();
+        var start = new CountDownLatch(1);
+        var registered = java.util.concurrent.CompletableFuture.supplyAsync(() -> {
+            try {
+                start.await();
+                return bus.register("race", EndpointConfig.stateful(4), (Integer value) -> value);
+            } catch (IllegalStateException closed) {
+                return null;
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                throw new java.util.concurrent.CancellationException();
+            }
+        });
+        var closing = java.util.concurrent.CompletableFuture.runAsync(() -> {
+            try {
+                start.await();
+                bus.close();
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                throw new java.util.concurrent.CancellationException();
+            }
+        });
+        start.countDown();
+        var endpoint = registered.get(2, TimeUnit.SECONDS);
+        closing.get(2, TimeUnit.SECONDS);
+        assertThrows(IllegalStateException.class,
+                () -> bus.register("after-race", EndpointConfig.stateful(1), (Integer value) -> value));
+        if (endpoint != null) {
+            assertThrows(IllegalStateException.class, () -> bus.request("race", 1));
+        }
+        bus.close();
     }
 
     @Test
