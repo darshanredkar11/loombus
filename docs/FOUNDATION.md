@@ -267,6 +267,8 @@ Gate 1 is ready for sign-off when:
 - **Gate 1:** primitive inventory and contract register are documented; not closed because several externally observable semantics remain open.
 - **Implementation:** no code changes are authorized by this document. Gate 2 flow specifications and subsequent implementation work must use this foundation.
 
+- [Functional flow specifications — Gate 2](FLOW-SPECS.md)
+
 ## 10. Source documents
 
 - [README — LoomBus thesis and overview](../README.md)
