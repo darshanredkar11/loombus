@@ -334,7 +334,7 @@ class LoomBusTest {
     }
 
     @Test
-    void closeRejectsNewAdmissionAndBlockedWaitersAfterDrain() throws Exception {
+    void closeRejectsNewAdmissionAndWakesBlockedWaiters() throws Exception {
         try (var bus = new LoomBus()) {
             var gate = new CountDownLatch(1);
             var started = new CountDownLatch(1);
