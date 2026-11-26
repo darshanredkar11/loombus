@@ -1,6 +1,6 @@
 # Gate 5 — Cumulative Flow Tests
 
-**Status:** Accepted for the current supported flows. The cumulative test workflow passed at commit `98f6fb3`: [run 45874246417](https://github.com/darshanredkar11/loombus/actions/runs/45874246417). The latest documentation-only commit is still being revalidated.
+**Status:** Accepted for the current supported flows. The cumulative test workflow passed at commit `98f6fb3`: [run 45874246417](https://github.com/darshanredkar11/loombus/actions/runs/45874246417). CI for the current branch remains the final readiness authority.
 
 Gate 5 tests the documented supported flow families together with primitive/regression tests. It does not add runtime features or change the ownership-first thesis.
 
