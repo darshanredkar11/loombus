@@ -21,6 +21,7 @@ public final class Endpoint<M, R> implements AutoCloseable {
     private final Semaphore work;
     private final CopyOnWriteArrayList<Consumer<Object>> subscribers = new CopyOnWriteArrayList<>();
     private final AtomicBoolean closed = new AtomicBoolean();
+    private final Object admissionLock = new Object();
 
     Endpoint(String name, EndpointConfig config, ExecutorService executor,
              Function<? super M, ? extends R> handler) {
@@ -78,13 +79,17 @@ public final class Endpoint<M, R> implements AutoCloseable {
         if (!acquired) {
             throw new RejectedExecutionException("Endpoint mailbox is full: " + name);
         }
-        if (closed.get()) {
-            capacity.release();
-            throw new IllegalStateException("Endpoint is closed: " + name);
-        }
+        synchronized (admissionLock) {
+            if (closed.get()) {
+                capacity.release();
+                throw new IllegalStateException("Endpoint is closed: " + name);
+            }
 
-        mailbox.offer(envelope);
-        work.release();
+            // This is the admission linearization point: close() uses the same lock.
+            // Once an envelope is offered here, it is admitted and must be drained.
+            mailbox.offer(envelope);
+            work.release();
+        }
     }
 
     private void workerLoop() {
@@ -124,7 +129,9 @@ public final class Endpoint<M, R> implements AutoCloseable {
 
     @Override
     public void close() {
-        closed.set(true);
+        synchronized (admissionLock) {
+            closed.set(true);
+        }
     }
 
     private record Envelope(
