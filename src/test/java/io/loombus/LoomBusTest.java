@@ -146,8 +146,13 @@ class LoomBusTest {
             assertThrows(RejectedExecutionException.class, () -> bus.publish("partial-publish", "event"));
             assertTrue(entered.await(1, TimeUnit.SECONDS));
             release.countDown();
-            awaitUntil(() -> bus.request("partial-publish", "capacity-check"), 500);
             assertEquals(0, secondDelivered.get());
+            bus.publish("partial-publish", "next");
+            awaitUntil(() -> {
+                if (secondDelivered.get() == 1) return;
+                throw new AssertionError("second subscriber has not received the later event");
+            }, 500);
+            assertEquals(1, secondDelivered.get());
         }
     }
 
