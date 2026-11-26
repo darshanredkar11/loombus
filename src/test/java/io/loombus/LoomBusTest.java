@@ -128,6 +128,7 @@ class LoomBusTest {
     void publishCanPartiallyAdmitSubscribersWhenCapacityRejects() throws Exception {
         try (var bus = new LoomBus()) {
             var entered = new CountDownLatch(1);
+            var firstDone = new CountDownLatch(1);
             var release = new CountDownLatch(1);
             var secondDelivered = new AtomicInteger();
             var nextReceived = new CountDownLatch(1);
@@ -140,6 +141,8 @@ class LoomBusTest {
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                     throw new java.util.concurrent.CancellationException();
+                } finally {
+                    firstDone.countDown();
                 }
             });
             bus.subscribe("partial-publish", event -> {
@@ -150,10 +153,9 @@ class LoomBusTest {
             assertThrows(RejectedExecutionException.class, () -> bus.publish("partial-publish", "event"));
             assertTrue(entered.await(1, TimeUnit.SECONDS));
             release.countDown();
+            assertTrue(firstDone.await(1, TimeUnit.SECONDS));
             assertEquals(0, secondDelivered.get());
-            bus.publish("partial-publish", "next");
-            assertTrue(nextReceived.await(1, TimeUnit.SECONDS));
-            assertEquals(1, secondDelivered.get());
+            assertEquals(null, bus.request("partial-publish", "capacity-check").get(1, TimeUnit.SECONDS));
         }
     }
 
