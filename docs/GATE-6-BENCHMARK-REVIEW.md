@@ -28,15 +28,15 @@ These are **single-round observations**, not reproducible performance claims. Th
 
 ## Repeated-round smoke result
 
-**Run:** [45874246811](https://github.com/darshanredkar11/loombus/actions/runs/45874246811)  
+**Run:** [45874675002](https://github.com/darshanredkar11/loombus/actions/runs/45874675002)  
 **Runtime:** Temurin 21.0.13, 4 reported processors. One warmup + three measured rounds. This run uses the corrected latency sample boundary and is an Actions smoke run, not an independent performance study.
-**Artifact:** [loombus-java21-baseline](https://github.com/darshanredkar11/loombus/actions/runs/45874246811/artifacts/15145070448)
+**Artifact:** [loombus-java21-baseline](https://github.com/darshanredkar11/loombus/actions/runs/45874675002/artifacts/15145140799)
 
 | Workload | Stream median | LoomBus median | Stream throughput | LoomBus throughput | Stream p50/p95/p99 ms | LoomBus p50/p95/p99 ms |
 |---|---:|---:|---:|---:|---|---|
-| CPU control, 100k | 20.802 ms | 46.751 ms | 4.81M/s | 2.14M/s | 10.024 / 17.979 / 19.579 | 31.298 / 43.292 / 45.190 |
-| Blocking fan-out, 1,000 × 15 ms | 3,774.141 ms | 486.295 ms | 265.0/s | 2,056.4/s | 1,887.216 / 3,592.951 / 3,743.897 | 243.025 / 455.792 / 470.997 |
-| Downstream pool, 500 × 10 ms, 16 slots | 1,261.426 ms | 325.183 ms | 396.4/s | 1,537.6/s | 635.939 / 1,200.973 / 1,251.317 | 162.312 / 304.763 / 314.931 |
+| CPU control, 100k | 23.057 ms | 49.422 ms | 4.34M/s | 2.02M/s | 11.466 / 20.316 / 21.191 | 31.215 / 43.586 / 44.694 |
+| Blocking fan-out, 1,000 × 15 ms | 3,772.419 ms | 484.226 ms | 265.1/s | 2,065.1/s | 1,887.203 / 3,590.821 / 3,741.662 | 242.151 / 453.952 / 469.125 |
+| Downstream pool, 500 × 10 ms, 16 slots | 1,260.796 ms | 324.279 ms | 396.6/s | 1,541.9/s | 635.040 / 1,200.183 / 1,250.592 | 162.164 / 303.960 / 314.095 |
 
 The repeated-run results preserve the intended interpretation: parallel streams lead the CPU control; LoomBus is materially faster in these synthetic blocking and constrained-pool scenarios. The measured p95/p99 are batch-submission-to-completion latencies, not just handler service time. These observations motivate further target-workload investigation but are not proof of universal superiority.
 
