@@ -326,6 +326,8 @@ class LoomBusTest {
             });
             var futures = IntStream.range(0, 8).mapToObj(i -> bus.request("drain", i)).toList();
             endpoint.close();
+            assertThrows(IllegalStateException.class, () -> bus.publish("drain", "after-close"));
+            assertThrows(IllegalStateException.class, () -> bus.subscribe("drain", event -> {}));
             gate.countDown();
             for (int i = 0; i < futures.size(); i++) {
                 assertEquals(i, futures.get(i).get(2, TimeUnit.SECONDS));
