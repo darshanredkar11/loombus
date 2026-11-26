@@ -6,6 +6,9 @@ import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Function;
 import org.junit.jupiter.api.Test;
 
 class AccumulatedFlowTest {
@@ -97,6 +100,109 @@ class AccumulatedFlowTest {
         }
     }
 
+    @Test
+    void pipelineTransfersMutableStateBetweenSequentialOwners() throws Exception {
+        try (var bus = new LoomBus()) {
+            bus.register("stage-a", EndpointConfig.stateful(8), (MutableState state) -> {
+                state.value++;
+                state.trace.append("A");
+                return state;
+            });
+            bus.register("stage-b", EndpointConfig.stateful(8), (MutableState state) -> {
+                state.value += 2;
+                state.trace.append("B");
+                return state;
+            });
+
+            var original = new MutableState();
+            var result = bus.<MutableState, MutableState>request("stage-a", original)
+                    .thenCompose(state -> bus.<MutableState, MutableState>request("stage-b", state))
+                    .get(1, TimeUnit.SECONDS);
+
+            assertSame(original, result);
+            assertEquals(3, result.value);
+            assertEquals("AB", result.trace.toString());
+        }
+    }
+
+    @Test
+    void waitBackpressureAdmitsProducerWhenCapacityIsReleased() throws Exception {
+        try (var bus = new LoomBus()) {
+            var firstStarted = new CountDownLatch(1);
+            var releaseFirst = new CountDownLatch(1);
+            var secondStarted = new CountDownLatch(1);
+            var producerThread = new AtomicReference<Thread>();
+            var producerReady = new CountDownLatch(1);
+            bus.register("wait", EndpointConfig.stateful(1), (Integer value) -> {
+                if (value == 1) {
+                    firstStarted.countDown();
+                    try {
+                        releaseFirst.await();
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        throw new java.util.concurrent.CancellationException();
+                    }
+                } else {
+                    secondStarted.countDown();
+                }
+                return value;
+            });
+
+            var first = bus.request("wait", 1);
+            assertTrue(firstStarted.await(1, TimeUnit.SECONDS));
+            var second = CompletableFuture.supplyAsync(() -> {
+                producerThread.set(Thread.currentThread());
+                producerReady.countDown();
+                return bus.request("wait", 2);
+            }).thenCompose(Function.identity());
+            assertTrue(producerReady.await(1, TimeUnit.SECONDS));
+            awaitBlockedProducer(producerThread.get(), 1_000);
+            releaseFirst.countDown();
+            assertEquals(1, first.get(1, TimeUnit.SECONDS));
+            assertEquals(2, second.get(1, TimeUnit.SECONDS));
+            assertTrue(secondStarted.await(1, TimeUnit.SECONDS));
+        }
+    }
+
+    @Test
+    void endpointAdmissionBudgetsRemainIndependent() throws Exception {
+        try (var bus = new LoomBus()) {
+            var aStarted = new CountDownLatch(1);
+            var releaseA = new CountDownLatch(1);
+            bus.register("isolated-a", EndpointConfig.concurrent(1, 1)
+                    .withBackpressure(Backpressure.REJECT), (Integer value) -> {
+                aStarted.countDown();
+                try {
+                    releaseA.await();
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new java.util.concurrent.CancellationException();
+                }
+                return value;
+            });
+            bus.register("isolated-b", EndpointConfig.stateful(2), (Integer value) -> value * 10);
+
+            var heldA = bus.request("isolated-a", 1);
+            assertTrue(aStarted.await(1, TimeUnit.SECONDS));
+            assertThrows(RejectedExecutionException.class, () -> bus.request("isolated-a", 2));
+            assertEquals(30, bus.request("isolated-b", 3).get(1, TimeUnit.SECONDS));
+            releaseA.countDown();
+            assertEquals(1, heldA.get(1, TimeUnit.SECONDS));
+        }
+    }
+
+    private static void awaitBlockedProducer(Thread thread, long timeoutMillis) throws Exception {
+        long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMillis);
+        while (thread.getState() != Thread.State.WAITING
+                && thread.getState() != Thread.State.TIMED_WAITING) {
+            if (System.nanoTime() >= deadline) {
+                fail("producer did not block on admission");
+            }
+            Thread.yield();
+        }
+    }
+
     private record Command(int delta) {}
     private static final class Account { int balance; }
+    private static final class MutableState { int value; final StringBuilder trace = new StringBuilder(); }
 }
