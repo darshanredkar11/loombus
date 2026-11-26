@@ -1,6 +1,6 @@
 # Gate 4 — Contract Decisions
 
-**Status:** Contract decisions for the 0.1 experimental API are finalized for the current flows; the latest cumulative CI run remains the validation authority.
+**Status:** Contract decisions for the 0.1 experimental API are finalized and the automated test matrix passed at commit `98f6fb3`: [run 45874246417](https://github.com/darshanredkar11/loombus/actions/runs/45874246417). The latest documentation-only commit is still being revalidated.
 
 This gate closes the observable semantics needed by the currently documented flows. It does not add new public capabilities.
 
@@ -45,4 +45,4 @@ This gate closes the observable semantics needed by the currently documented flo
 
 ## Exit
 
-Gate 4 closes once every row above has an automated test, all previous tests still pass, and CI is green. Any test that depends on timing must use latches or bounded assertions rather than unbounded sleeps.
+Gate 4 acceptance criteria are met: every row above has automated coverage, the cumulative suite passed at `98f6fb3`, and timing-sensitive tests use latches/bounded assertions. The latest documentation-only commit still requires final CI confirmation.
