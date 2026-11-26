@@ -1,6 +1,6 @@
 # Gate 6 — Benchmark Review
 
-**Status:** Accepted for the current benchmark harness. The latest code commit `98f6fb3` passed the benchmark workflow [45874246811](https://github.com/darshanredkar11/loombus/actions/runs/45874246811); the latest documentation-only commit is still being revalidated.
+**Status:** Accepted for the current benchmark harness. The latest code commit `98f6fb3` passed the benchmark workflow [45874246811](https://github.com/darshanredkar11/loombus/actions/runs/45874246811). CI for the current branch remains the final readiness authority.
 
 ## Thesis and scope
 
