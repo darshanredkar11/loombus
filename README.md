@@ -432,6 +432,7 @@ Planned hardening includes:
 
 ## Documentation
 
+- [Foundation and primitive contracts](docs/FOUNDATION.md) — canonical Gate 0 and Gate 1 baseline
 - [Feature and semantic guide](docs/FEATURES.md)
 - [Use cases and patterns](docs/USE-CASES.md)
 
