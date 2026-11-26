@@ -414,26 +414,26 @@ Detailed design and use-case documentation lives under [`docs/`](docs/).
 
 **0.1 functional draft.**
 
-The API is intentionally small while we validate semantics, failure behavior, memory visibility, overload behavior, and performance.
+ The API is intentionally small while we validate semantics, failure behavior, memory visibility, overload behavior, and performance.
 
-Current validation includes request/response, endpoint ordering, bounded backpressure, parallel execution, exception propagation, pub/sub, reference identity, safe-publication stress, and state ownership under concurrent producers.
+Current validation includes primitive-level tests plus accumulated-flow coverage for stateful aggregates, fan-out/fan-in, blocking stage composition, endpoint concurrency budgets, close/admission behavior, partial publish, cancellation, failure recovery, reference identity, and safe publication.
 
-Planned hardening includes:
+Hardening and remaining review work:
 
-- endpoint close/drain semantics
-- request timeout and cancellation semantics
-- interruption behavior
-- stronger publish/fan-out semantics
-- mailbox accounting and activation races
-- structured concurrency integration
-- Java Memory Model stress testing
-- performance and throughput benchmarks
-- API refinement based on benchmark and failure results
+- worker interruption and replacement behavior
+- lifecycle termination observability (endpoint-level await/drain API is not exposed)
+- subscriber error reporting API (currently uncaught-handler based)
+- injected executor ownership (currently transferred to LoomBus and closed by bus.close())
+- deeper stress/property testing for races and capacity accounting
+- benchmark methodology and target workload expansion
+- API refinement only where the contracts and flows demonstrate a need
 
 ## Documentation
 
 - [Foundation and primitive contracts](docs/FOUNDATION.md) — canonical Gate 0 and Gate 1 baseline
 - [Functional flow specifications](docs/FLOW-SPECS.md) — Gate 2 flow review
+- [Gate 3 implementation audit](docs/GATE-3-AUDIT.md) — source audit and findings
+- [Gate 4 contract decisions](docs/GATE-4-CONTRACTS.md) — resolved 0.1 semantics and test matrix
 - [Feature and semantic guide](docs/FEATURES.md)
 - [Use cases and patterns](docs/USE-CASES.md)
 
