@@ -1,6 +1,6 @@
 # Gate 6 — Benchmark Review
 
-**Status:** Repeated-round benchmark harness and smoke results recorded; final readiness still requires CI on the latest accumulated commit.
+**Status:** Accepted for the current benchmark harness. The latest code commit `98f6fb3` passed the benchmark workflow [45874246811](https://github.com/darshanredkar11/loombus/actions/runs/45874246811); the latest documentation-only commit is still being revalidated.
 
 ## Thesis and scope
 
@@ -65,4 +65,4 @@ Latency samples are measured from the round's submission start to each item's co
 
 ## Gate 6 exit
 
-Gate 6 is accepted when the revised harness compiles and runs in CI, emits complete repeated-round summaries for all three workloads, the artifact/log evidence is available, and cumulative tests pass on the same latest commit. The results document must remain honest about limitations.
+Gate 6 acceptance criteria are met for the current code: the revised harness compiled and ran all three workloads with one warmup/three measured rounds, summaries and p50/p95/p99 latency, and the artifact is available at [15145070448](https://github.com/darshanredkar11/loombus/actions/runs/45874246811/artifacts/15145070448). The cumulative test workflow also passed at `98f6fb3`. The latest documentation-only commit still requires final CI confirmation. Results remain workload-specific and non-statistical.
