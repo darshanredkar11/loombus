@@ -50,6 +50,7 @@ The benchmark harness now:
 - Includes JDK/runtime version and processor count in output.
 - Fails the round if result or latency-sample count is incomplete.
 - Reuses one LoomBusOps endpoint per helper instance across rounds, so map-call measurements do not repeatedly register/close endpoints; lifecycle churn is not mixed into the map-call comparison.
+- Guards against reentrant `LOOMBUS` mapping on the same helper instance to fail explicitly rather than risk a self-deadlock at concurrency 1.
 
 Latency samples are measured from the round's submission start to each item's completion, so they include queue/admission wait and handler service time. This is a lightweight harness—not JMH, not a statistically rigorous benchmark, and not a substitute for independent local runs with controlled hardware, forks, GC profiling, and confidence intervals.
 
