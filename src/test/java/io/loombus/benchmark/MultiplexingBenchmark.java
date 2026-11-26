@@ -11,6 +11,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.Semaphore;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.TimeUnit;
 import java.util.function.IntFunction;
 import java.util.stream.IntStream;
@@ -98,15 +99,16 @@ public final class MultiplexingBenchmark {
     }
 
     private static Round runRound(LoomBusOps ops, ExecutionMode mode, int count, IntFunction<Long> work) {
-        long submittedAt = System.nanoTime();
+        var submissionStart = new AtomicLong();
         var inputs = IntStream.range(0, count)
-                .mapToObj(value -> new TimedInput(value, submittedAt))
+                .mapToObj(value -> new TimedInput(value, submissionStart))
                 .toList();
         var latencies = new ConcurrentLinkedQueue<Long>();
         long start = System.nanoTime();
+        submissionStart.set(start);
         var output = ops.mapAll(mode, inputs, input -> {
             long value = work.apply(input.value());
-            latencies.add(System.nanoTime() - input.submittedAtNanos());
+            latencies.add(System.nanoTime() - input.submittedAtNanos().get());
             return value;
         });
         long elapsed = System.nanoTime() - start;
@@ -166,7 +168,7 @@ public final class MultiplexingBenchmark {
         IntFunction<Long> create();
     }
 
-    private record TimedInput(int value, long submittedAtNanos) {}
+    private record TimedInput(int value, AtomicLong submittedAtNanos) {}
     private record Round(long elapsedNanos, int count, double opsPerSecond,
                         double p50Millis, double p95Millis, double p99Millis) {}
 }
