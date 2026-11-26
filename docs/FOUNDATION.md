@@ -266,10 +266,12 @@ Gate 1 is ready for sign-off when:
 - **Gate 0:** goal and ownership-first thesis are documented as the canonical baseline.
 - **Gate 1:** primitive and contract inventory is documented. Remaining non-core items are explicitly deferred rather than silently promised.
 - **Gate 2:** supported flow families are specified in [FLOW-SPECS.md](FLOW-SPECS.md).
-- **Gate 3:** implementation audit and findings are recorded in [GATE-3-AUDIT.md](GATE-3-AUDIT.md).
-- **Gate 4:** observable 0.1 contracts are decided in [GATE-4-CONTRACTS.md](GATE-4-CONTRACTS.md).
-- **Gate 5:** accumulated correctness coverage is mapped in [GATE-5-CUMULATIVE-TESTS.md](GATE-5-CUMULATIVE-TESTS.md).
-- **Gate 6:** workload-specific benchmark methodology is reviewed in [GATE-6-BENCHMARK-REVIEW.md](GATE-6-BENCHMARK-REVIEW.md).
+- **Gate 3:** implementation audit and correctness fixes are recorded in [GATE-3-AUDIT.md](GATE-3-AUDIT.md); latest code commit `98f6fb3` passed test and benchmark CI.
+- **Gate 4:** observable 0.1 contracts are decided and tested in [GATE-4-CONTRACTS.md](GATE-4-CONTRACTS.md).
+- **Gate 5:** accumulated correctness coverage is accepted in [GATE-5-CUMULATIVE-TESTS.md](GATE-5-CUMULATIVE-TESTS.md); the cumulative test workflow passed at `98f6fb3`.
+- **Gate 6:** workload-specific benchmark methodology and smoke results are recorded in [GATE-6-BENCHMARK-REVIEW.md](GATE-6-BENCHMARK-REVIEW.md); repeated benchmark workflow passed at `98f6fb3`.
+
+The latest documentation-only commit still requires final CI confirmation.
 
 The foundation remains authoritative for the thesis. Later gates refine implementation and test evidence; they do not broaden the goal or imply deferred features exist.
 
