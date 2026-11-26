@@ -1,6 +1,6 @@
 # Gate 4 — Contract Decisions
 
-**Status:** Decisions for the 0.1 experimental API; subject to cumulative CI validation.
+**Status:** Contract decisions for the 0.1 experimental API are finalized for the current flows; the latest cumulative CI run remains the validation authority.
 
 This gate closes the observable semantics needed by the currently documented flows. It does not add new public capabilities.
 
@@ -38,7 +38,8 @@ This gate closes the observable semantics needed by the currently documented flo
 | Close/admission race | No accepted work can be inserted after close linearization; losing producer releases permit |
 | Publish | Subscriber delivery and partial admission semantics are not falsely treated as atomic |
 | Subscriber exception | Worker survives handler/subscriber failure and capacity is released |
-| Safe publication | Message values are visible as expected through the mailbox/executor boundary |
+| Safe publication | Message values are visible as expected through the mailbox/executor boundary || Bus close and registration race | Registration either completes before bus close and is then closed, or rejects after close; injected executor is closed by LoomBus. |
+| Worker interruption / partial startup | An idle worker recovers from interruption while endpoint is open; partial worker startup failure closes earlier workers. |
 | Bus close and registration race | Registration is either completed before bus close and then closed, or rejected after close. Executor ownership and idempotent close are verified. |
 | Endpoint budgets | Independent mailbox budgets and configured concurrency are honored |
 
