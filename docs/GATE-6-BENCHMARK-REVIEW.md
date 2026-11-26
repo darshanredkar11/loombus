@@ -28,14 +28,14 @@ These are **single-round observations**, not reproducible performance claims. Th
 
 ## Repeated-round smoke result
 
-**Run:** [45873155850](https://github.com/darshanredkar11/loombus/actions/runs/45873155850)  
-**Runtime:** Temurin 21.0.13, 4 reported processors. One warmup + three measured rounds. This is an Actions smoke run; not an independent performance study.
+**Run:** [45873722347](https://github.com/darshanredkar11/loombus/actions/runs/45873722347)  
+**Runtime:** Temurin 21.0.13, 4 reported processors. One warmup + three measured rounds. This run corrects latency sample start to the measured submission boundary. It is an Actions smoke run, not an independent performance study.
 
 | Workload | Stream median | LoomBus median | Stream throughput | LoomBus throughput | Stream p50/p95/p99 ms | LoomBus p50/p95/p99 ms |
 |---|---:|---:|---:|---:|---|---|
-| CPU control, 100k | 18.098 ms | 51.313 ms | 5.53M/s | 1.95M/s | 8.978 / 19.404 / 20.463 | 20.344 / 40.794 / 41.775 |
-| Blocking fan-out, 1,000 × 15 ms | 3,773.024 ms | 484.938 ms | 265.0/s | 2,062.1/s | 1,886.312 / 3,591.918 / 3,742.826 | 242.724 / 454.587 / 469.742 |
-| Downstream pool, 500 × 10 ms, 16 slots | 1,260.938 ms | 324.843 ms | 396.5/s | 1,539.2/s | 635.539 / 1,200.440 / 1,250.878 | 162.563 / 304.558 / 314.703 |
+| CPU control, 100k | 16.415 ms | 44.055 ms | 6.09M/s | 2.27M/s | 7.621 / 15.040 / 15.988 | 16.064 / 28.649 / 29.983 |
+| Blocking fan-out, 1,000 × 15 ms | 3,788.234 ms | 485.546 ms | 264.0/s | 2,059.5/s | 1,886.412 / 3,591.977 / 3,742.843 | 242.656 / 455.038 / 470.186 |
+| Downstream pool, 500 × 10 ms, 16 slots | 1,271.190 ms | 324.755 ms | 393.3/s | 1,539.6/s | 635.778 / 1,200.985 / 1,251.449 | 162.389 / 304.407 / 314.553 |
 
 The repeated-run results preserve the intended interpretation: parallel streams lead the CPU control; LoomBus is materially faster in these synthetic blocking and constrained-pool scenarios. The measured p95/p99 are batch-submission-to-completion latencies, not just handler service time. These observations motivate further target-workload investigation but are not proof of universal superiority.
 
