@@ -284,6 +284,18 @@ class LoomBusTest {
 
 
     @Test
+    void handlerInterruptDoesNotPermanentlyLoseWorker() throws Exception {
+        try (var bus = new LoomBus()) {
+            bus.register("interrupt-recovery", EndpointConfig.stateful(8), (Integer value) -> {
+                if (value == 1) Thread.currentThread().interrupt();
+                return value;
+            });
+            assertEquals(1, bus.request("interrupt-recovery", 1).get(1, TimeUnit.SECONDS));
+            assertEquals(2, bus.request("interrupt-recovery", 2).get(1, TimeUnit.SECONDS));
+        }
+    }
+
+    @Test
     void capacityIsRecoveredAfterHandlerFailure() throws Exception {
         try (var bus = new LoomBus()) {
             var attempts = new AtomicInteger();
