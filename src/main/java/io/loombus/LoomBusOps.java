@@ -1,0 +1,19 @@
+package io.loombus;
+import java.time.Duration; import java.util.ArrayList; import java.util.List; import java.util.Objects; import java.util.UUID;
+import java.util.concurrent.CompletableFuture; import java.util.concurrent.CompletionException; import java.util.function.Consumer; import java.util.function.Function;
+/** Side-by-side execution helper for Java parallel streams and LoomBus virtual-thread execution. */
+public final class LoomBusOps implements AutoCloseable {
+ public record Defaults(int capacity,int concurrency,Backpressure backpressure,Duration admissionTimeout){
+  public Defaults {if(capacity<=0)throw new IllegalArgumentException("capacity must be > 0");if(concurrency<=0)throw new IllegalArgumentException("concurrency must be > 0");Objects.requireNonNull(backpressure,"backpressure");if(backpressure==Backpressure.TIMEOUT&&(admissionTimeout==null||admissionTimeout.isZero()||admissionTimeout.isNegative()))throw new IllegalArgumentException("admissionTimeout must be > 0 for TIMEOUT");}
+  public static Defaults standard(){int cores=Math.max(4,Runtime.getRuntime().availableProcessors());return new Defaults(4096,cores*8,Backpressure.WAIT,Duration.ofMillis(250));}
+  public EndpointConfig toEndpointConfig(){EndpointConfig cfg=EndpointConfig.concurrent(capacity,concurrency);return backpressure==Backpressure.TIMEOUT?cfg.withBackpressure(backpressure,admissionTimeout):cfg.withBackpressure(backpressure);}
+ }
+ private final LoomBus bus;private final Defaults defaults;private final boolean ownsBus;
+ public LoomBusOps(){this(new LoomBus(),Defaults.standard(),true);}public LoomBusOps(LoomBus bus){this(bus,Defaults.standard(),false);}public LoomBusOps(LoomBus bus,Defaults defaults){this(bus,defaults,false);}
+ private LoomBusOps(LoomBus bus,Defaults defaults,boolean ownsBus){this.bus=Objects.requireNonNull(bus,"bus");this.defaults=Objects.requireNonNull(defaults,"defaults");this.ownsBus=ownsBus;}
+ public Defaults defaults(){return defaults;}
+ public <T,R> List<R> mapAll(ExecutionMode mode,List<T> items,Function<? super T,? extends R> mapper){Objects.requireNonNull(mode,"mode");Objects.requireNonNull(items,"items");Objects.requireNonNull(mapper,"mapper");if(items.isEmpty())return List.of();return switch(mode){case PARALLEL_STREAM->items.parallelStream().map(mapper).toList();case LOOMBUS->mapViaEphemeralEndpoint(items,mapper);};}
+ public <T> void forEachAll(ExecutionMode mode,List<T> items,Consumer<? super T> action){Objects.requireNonNull(mode,"mode");Objects.requireNonNull(items,"items");Objects.requireNonNull(action,"action");if(items.isEmpty())return;switch(mode){case PARALLEL_STREAM->items.parallelStream().forEach(action);case LOOMBUS->mapViaEphemeralEndpoint(items,item->{action.accept(item);return null;});}}
+ private <T,R> List<R> mapViaEphemeralEndpoint(List<T> items,Function<? super T,? extends R> mapper){String endpointName="ops.map."+UUID.randomUUID();Endpoint<T,R> endpoint=bus.register(endpointName,defaults.toEndpointConfig(),mapper);List<CompletableFuture<R>> futures=new ArrayList<>(items.size());try{for(T item:items)futures.add(bus.request(endpointName,item));CompletableFuture<Void> allDone=CompletableFuture.allOf(futures.toArray(CompletableFuture[]::new));try{allDone.join();}catch(CompletionException ex){for(CompletableFuture<R> f:futures)f.cancel(false);throw ex;}List<R> results=new ArrayList<>(futures.size());for(CompletableFuture<R> f:futures)results.add(f.join());return results;}finally{endpoint.close();}}
+ @Override public void close(){if(ownsBus)bus.close();}
+}
