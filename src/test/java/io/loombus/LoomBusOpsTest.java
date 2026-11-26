@@ -29,6 +29,21 @@ class LoomBusOpsTest {
     }
 
     @Test
+    void mapperFailureDoesNotPoisonReusableEndpoint() throws Exception {
+        try (var bus = new LoomBus();
+             var ops = new LoomBusOps(bus, new LoomBusOps.Defaults(
+                     16, 2, Backpressure.WAIT, java.time.Duration.ofMillis(100)))) {
+            assertThrows(java.util.concurrent.CompletionException.class,
+                    () -> ops.mapAll(ExecutionMode.LOOMBUS, List.of(1, 2, 3), value -> {
+                        if (value == 2) throw new IllegalArgumentException("bad input");
+                        return value;
+                    }));
+            assertEquals(List.of(10, 20, 30),
+                    ops.mapAll(ExecutionMode.LOOMBUS, List.of(1, 2, 3), value -> value * 10));
+        }
+    }
+
+    @Test
     void sameHelperRejectsReentrantLoomBusMappingInsteadOfDeadlocking() {
         try (var bus = new LoomBus();
              var ops = new LoomBusOps(bus, new LoomBusOps.Defaults(
