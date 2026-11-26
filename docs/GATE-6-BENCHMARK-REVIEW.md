@@ -30,6 +30,7 @@ These are **single-round observations**, not reproducible performance claims. Th
 
 **Run:** [45873992235](https://github.com/darshanredkar11/loombus/actions/runs/45873992235)  
 **Runtime:** Temurin 21.0.13, 4 reported processors. One warmup + three measured rounds. This run uses the corrected latency sample boundary and is an Actions smoke run, not an independent performance study.
+**Artifact:** [loombus-java21-baseline](https://github.com/darshanredkar11/loombus/actions/runs/45873992235/artifacts/15143527278)
 
 | Workload | Stream median | LoomBus median | Stream throughput | LoomBus throughput | Stream p50/p95/p99 ms | LoomBus p50/p95/p99 ms |
 |---|---:|---:|---:|---:|---|---|
