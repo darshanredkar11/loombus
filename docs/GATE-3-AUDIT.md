@@ -1,7 +1,7 @@
 # Gate 3 — Implementation Audit
 
 **Branch:** `benchmark/java21-baseline`  
-**Status:** Audit complete; correctness fixes applied. Latest cumulative CI is still the readiness authority. Not a production-readiness sign-off.
+**Status:** Gate 3 complete; correctness fixes applied. Latest code commit `98f6fb3` passed both workflows. The latest documentation-only commit still requires final CI confirmation. Not a production-readiness sign-off.
 
 ## Audit baseline
 
@@ -55,6 +55,6 @@ The implementation was reviewed against the original ownership-first thesis, Gat
 - [x] Recorded source-grounded gaps.
 - [x] Fixed the correctness-critical admission, close, registration, worker, and partial-startup lifecycle gaps.
 - [x] Added regression coverage for the fixes and current supported flows.
-- [ ] Confirmed the latest accumulated commit has green test and benchmark workflows (tracked in later gates).
+- [x] Confirmed latest code commit `98f6fb3` has green test and benchmark workflows: [test 45874246417](https://github.com/darshanredkar11/loombus/actions/runs/45874246417) and [benchmark 45874246811](https://github.com/darshanredkar11/loombus/actions/runs/45874246811).
 
 Gate 4 decides observable contracts, Gate 5 verifies cumulative flows, and Gate 6 reviews target-workload measurements. None may broaden the original goal.
