@@ -132,8 +132,14 @@ public final class Endpoint<M, R> implements AutoCloseable {
                     if (envelope.future != null) {
                         envelope.future.completeExceptionally(error);
                     } else {
-                        Thread.currentThread().getUncaughtExceptionHandler()
-                                .uncaughtException(Thread.currentThread(), error);
+                        // A broken diagnostic hook must not terminate this worker and
+                        // strand already-admitted mailbox work.
+                        try {
+                            Thread.currentThread().getUncaughtExceptionHandler()
+                                    .uncaughtException(Thread.currentThread(), error);
+                        } catch (Throwable reportingFailure) {
+                            error.addSuppressed(reportingFailure);
+                        }
                     }
                 } finally {
                     capacity.release();
