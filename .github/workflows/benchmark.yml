@@ -21,6 +21,8 @@ jobs:
         run: mvn -q test-compile
       - name: Run baseline benchmark
         run: java -cp target/test-classes:target/classes io.loombus.benchmark.MultiplexingBenchmark | tee benchmark-results.txt
+      - name: Run immutable chain benchmark
+        run: java -cp target/test-classes:target/classes io.loombus.benchmark.ImmutableChainBenchmark | tee -a benchmark-results.txt
       - name: Upload benchmark results
         uses: actions/upload-artifact@v4
         with:
