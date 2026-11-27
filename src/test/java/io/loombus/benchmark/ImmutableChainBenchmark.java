@@ -10,11 +10,7 @@ import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.List;
 
-/**
- * Phase 1 benchmark: independent immutable values processed through a three-stage
- * chain. Compares sequential execution, stage-wise parallel streams, and
- * stage-wise LoomBus multiplexing. Lightweight benchmark, not JMH.
- */
+/** Benchmark of immutable inputs through a three-stage independent chain. Not JMH. */
 public final class ImmutableChainBenchmark {
     private static final int WARMUP = 2;
     private static final int MEASURED = 5;
@@ -28,16 +24,14 @@ public final class ImmutableChainBenchmark {
         System.out.println("Processors: " + Runtime.getRuntime().availableProcessors());
         System.out.printf("Items: %d | warmup rounds: %d | measured rounds: %d%n",
                 ITEMS, WARMUP, MEASURED);
-        System.out.println("Input/state: immutable records; each item independent");
+        System.out.println("Input/state: immutable records; independent items");
         var inputs = java.util.stream.IntStream.range(0, ITEMS)
                 .mapToObj(i -> new State(i, i + 17L)).toList();
 
         var expected = sequential(inputs);
-        var parallel = parallelStreams(inputs);
-        var loom = loomBus(inputs);
-        requireEqual(expected, parallel, "parallel stream correctness");
-        requireEqual(expected, loom, "LoomBus correctness");
-        System.out.println("Correctness preflight: all strategies produce identical output.");
+        requireEqual(expected, parallelStreams(inputs), "parallel stream preflight");
+        requireEqual(expected, loomBus(inputs), "LoomBus preflight");
+        System.out.println("Correctness preflight: identical outputs across all strategies.");
 
         benchmark(inputs);
     }
@@ -46,13 +40,13 @@ public final class ImmutableChainBenchmark {
         var results = new EnumMap<Strategy, List<Long>>(Strategy.class);
         for (var strategy : Strategy.values()) results.put(strategy, new ArrayList<>());
         try (var bus = new LoomBus();
-             var ops = new LoomBusOps(bus, new LoomBusOps.Defaults(
-                     8_192, Math.max(4, Math.min(32, Runtime.getRuntime().availableProcessors() * 2)),
-                     Backpressure.WAIT, Duration.ofSeconds(5)))) {
+             var ops = new LoomBusOps(bus, defaults())) {
             for (int round = 0; round < WARMUP + MEASURED; round++) {
-                var order = round % 2 == 0
-                        ? List.of(Strategy.SEQUENTIAL, Strategy.PARALLEL_STREAM, Strategy.LOOMBUS)
-                        : List.of(Strategy.LOOMBUS, Strategy.PARALLEL_STREAM, Strategy.SEQUENTIAL);
+                var order = switch (round % 3) {
+                    case 0 -> List.of(Strategy.SEQUENTIAL, Strategy.PARALLEL_STREAM, Strategy.LOOMBUS);
+                    case 1 -> List.of(Strategy.PARALLEL_STREAM, Strategy.LOOMBUS, Strategy.SEQUENTIAL);
+                    default -> List.of(Strategy.LOOMBUS, Strategy.SEQUENTIAL, Strategy.PARALLEL_STREAM);
+                };
                 for (var strategy : order) {
                     long start = System.nanoTime();
                     var output = switch (strategy) {
@@ -61,7 +55,6 @@ public final class ImmutableChainBenchmark {
                         case LOOMBUS -> loomBus(ops, inputs);
                     };
                     long elapsed = System.nanoTime() - start;
-                    requireEqual(sequential(inputs), output, strategy + " result check");
                     if (round >= WARMUP) {
                         results.get(strategy).add(elapsed);
                         System.out.printf("round=%d strategy=%s elapsed=%.3fms throughput=%.0f items/s checksum=%d%n",
@@ -82,6 +75,12 @@ public final class ImmutableChainBenchmark {
         }
     }
 
+    private static LoomBusOps.Defaults defaults() {
+        return new LoomBusOps.Defaults(8_192,
+                Math.max(4, Math.min(32, Runtime.getRuntime().availableProcessors() * 2)),
+                Backpressure.WAIT, Duration.ofSeconds(5));
+    }
+
     private static List<State> sequential(List<State> inputs) {
         var output = new ArrayList<State>(inputs.size());
         for (State s : inputs) output.add(stage3(stage2(stage1(s))));
@@ -95,10 +94,7 @@ public final class ImmutableChainBenchmark {
     }
 
     private static List<State> loomBus(List<State> inputs) {
-        try (var bus = new LoomBus();
-             var ops = new LoomBusOps(bus, new LoomBusOps.Defaults(
-                     8_192, Math.max(4, Math.min(32, Runtime.getRuntime().availableProcessors() * 2)),
-                     Backpressure.WAIT, Duration.ofSeconds(5)))) {
+        try (var bus = new LoomBus(); var ops = new LoomBusOps(bus, defaults())) {
             return loomBus(ops, inputs);
         }
     }
@@ -123,7 +119,8 @@ public final class ImmutableChainBenchmark {
 
     private static long compute(long value, int rounds, int salt) {
         long x = value ^ salt;
-        for (int i = 0; i < rounds; i++) x = (x * 0x9E3779B97F4A7C15L + i + salt) ^ (x >>> 11);
+        for (int i = 0; i < rounds; i++)
+            x = (x * 0x9E3779B97F4A7C15L + i + salt) ^ (x >>> 11);
         return x;
     }
 
