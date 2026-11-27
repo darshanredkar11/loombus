@@ -191,6 +191,31 @@ class AccumulatedFlowTest {
         }
     }
 
+    @Test
+    void throwingUncaughtExceptionHandlerDoesNotKillSubscriberWorker() throws Exception {
+        try (var bus = new LoomBus()) {
+            var diagnosticCalled = new CountDownLatch(1);
+            var recovered = new CountDownLatch(1);
+            bus.register("diagnostics", EndpointConfig.stateful(4), event -> null);
+            bus.subscribe("diagnostics", (Object event) -> {
+                if ("fail".equals(event)) {
+                    Thread.currentThread().setUncaughtExceptionHandler((thread, error) -> {
+                        diagnosticCalled.countDown();
+                        throw new IllegalStateException("diagnostic hook failure");
+                    });
+                    throw new IllegalArgumentException("subscriber failure");
+                }
+                if ("recover".equals(event)) recovered.countDown();
+            });
+
+            bus.publish("diagnostics", "fail");
+            assertTrue(diagnosticCalled.await(1, TimeUnit.SECONDS));
+            bus.publish("diagnostics", "recover");
+            assertTrue(recovered.await(1, TimeUnit.SECONDS),
+                    "worker should continue after a throwing diagnostic hook");
+        }
+    }
+
     private static void awaitBlockedProducer(Thread thread, long timeoutMillis) throws Exception {
         long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMillis);
         while (thread.getState() != Thread.State.WAITING
