@@ -46,10 +46,11 @@ public final class ImmutableChainBenchmark {
         try (var bus = new LoomBus();
              var ops = new LoomBusOps(bus, defaults())) {
             for (int round = 0; round < WARMUP + MEASURED; round++) {
-                var order = switch (round % 3) {
-                    case 0 -> List.of(Strategy.SEQUENTIAL, Strategy.PARALLEL_STREAM, Strategy.LOOMBUS);
-                    case 1 -> List.of(Strategy.PARALLEL_STREAM, Strategy.LOOMBUS, Strategy.SEQUENTIAL);
-                    default -> List.of(Strategy.LOOMBUS, Strategy.SEQUENTIAL, Strategy.PARALLEL_STREAM);
+                var order = switch (round % 4) {
+                    case 0 -> List.of(Strategy.SEQUENTIAL, Strategy.PARALLEL_STREAM, Strategy.LOOMBUS_BATCH, Strategy.LOOMBUS_PIPELINE);
+                    case 1 -> List.of(Strategy.PARALLEL_STREAM, Strategy.LOOMBUS_BATCH, Strategy.LOOMBUS_PIPELINE, Strategy.SEQUENTIAL);
+                    case 2 -> List.of(Strategy.LOOMBUS_BATCH, Strategy.LOOMBUS_PIPELINE, Strategy.SEQUENTIAL, Strategy.PARALLEL_STREAM);
+                    default -> List.of(Strategy.LOOMBUS_PIPELINE, Strategy.SEQUENTIAL, Strategy.PARALLEL_STREAM, Strategy.LOOMBUS_BATCH);
                 };
                 for (var strategy : order) {
                     long start = System.nanoTime();
@@ -110,7 +111,22 @@ public final class ImmutableChainBenchmark {
         return ops.mapAll(ExecutionMode.LOOMBUS, b, ImmutableChainBenchmark::stage3);
     }
 
-    /** True per-item asynchronous chain: downstream stage admission happens as each prior item completes. */\n    private static List<State> loomBusChained(List<State> inputs) {\n        try (var bus = new LoomBus()) {\n            int concurrency = Math.max(4, Math.min(32, Runtime.getRuntime().availableProcessors() * 2));\n            var cfg = EndpointConfig.concurrent(8_192, concurrency);\n            Endpoint<State, State> stage1 = bus.register("chain-1", cfg, ImmutableChainBenchmark::stage1);\n            Endpoint<State, State> stage2 = bus.register("chain-2", cfg, ImmutableChainBenchmark::stage2);\n            Endpoint<State, State> stage3 = bus.register("chain-3", cfg, ImmutableChainBenchmark::stage3);\n            var futures = inputs.stream().map(input -> stage1.request(input)\n                    .thenCompose(stage2::request)\n                    .thenCompose(stage3::request)).toList();\n            CompletableFuture.allOf(futures.toArray(CompletableFuture[]::new)).join();\n            return futures.stream().map(CompletableFuture::join).toList();\n        }\n    }\n\n    private static State stage1(State input) {
+    /** True per-item asynchronous chain: downstream stage admission happens as each prior item completes. */
+    private static List<State> loomBusChained(List<State> inputs) {
+        try (var bus = new LoomBus()) {
+            int concurrency = Math.max(4, Math.min(32, Runtime.getRuntime().availableProcessors() * 2));
+            var cfg = EndpointConfig.concurrent(8_192, concurrency);
+            Endpoint<State, State> stage1 = bus.register("chain-1", cfg, ImmutableChainBenchmark::stage1);
+            Endpoint<State, State> stage2 = bus.register("chain-2", cfg, ImmutableChainBenchmark::stage2);
+            Endpoint<State, State> stage3 = bus.register("chain-3", cfg, ImmutableChainBenchmark::stage3);
+            var futures = inputs.stream().map(input -> stage1.request(input)
+                    .thenCompose(stage2::request)
+                    .thenCompose(stage3::request)).toList();
+            CompletableFuture.allOf(futures.toArray(CompletableFuture[]::new)).join();
+            return futures.stream().map(CompletableFuture::join).toList();
+        }
+    
+    private static State stage1(State input) {
         return new State(input.id(), compute(input.value(), 90, 13));
     }
 
